@@ -1,10 +1,10 @@
-# AI Media Planning Platform - Workflow Orchestration Deep Dive
+# AI Media Planning Platform - Simplified Workflow Orchestration Plan
 
 ## Overview
 
-This document provides a detailed plan for implementing the Temporal workflow orchestration layer of the AI Media Planning Platform. The system uses three primary workflows that work together to provide seamless integration, continuous synchronization, and intelligent campaign analysis.
+This document provides a simplified, MVP-focused plan for implementing the Temporal workflow orchestration layer. We've removed over-engineered features to focus on core functionality that delivers immediate value.
 
-## Workflow Architecture
+## Core Workflows
 
 ```mermaid
 graph TB
@@ -14,495 +14,263 @@ graph TB
         PW[Planning Workflow]
     end
     
-    subgraph "Child Workflows"
-        ISW[Initial Sync Workflow]
-        FSW[File Sync Workflow]
-        AAW[Agent Analysis Workflow]
-    end
-    
-    subgraph "Activities"
-        OA[OAuth Activities]
-        DA[Discovery Activities]
-        SA[Sync Activities]
-        GA[Gathering Activities]
-        AA[Agent Activities]
+    subgraph "Core Activities"
+        OA[OAuth Activity]
+        DA[Discovery Activity]
+        SA[Sync Activity]
+        AA[Agent Analysis Activity]
     end
     
     IW --> OA
     IW --> DA
-    IW --> ISW
+    IW -.starts.-> SW
     SW --> SA
-    SW --> FSW
-    PW --> GA
-    PW --> AAW
-    ISW --> SA
-    FSW --> SA
-    AAW --> AA
+    PW --> AA
 ```
 
-## 1. Integration Workflow
+## 1. Integration Workflow (Simplified)
 
 ### Purpose
-Handles the initial connection and setup when a user integrates a new platform (Google Drive, Meta, or Google Ads).
+Handles OAuth connection and initial setup for Google Drive (primary integration).
 
 ### Workflow Definition
 
-**Workflow ID Pattern**: `integration-{user_id}-{platform}-{timestamp}`
+**Workflow ID**: `integration-{user_id}-{timestamp}`
 
-**Input Parameters**:
+**Input**:
 - `user_id`: string
-- `platform`: enum ('google_drive', 'meta', 'google_ads')
-- `oauth_redirect_uri`: string
+- `platform`: string (start with 'google_drive' only)
 - `workspace_id`: string
 
 **Output**:
-- `status`: enum ('connected', 'failed', 'partial')
-- `discovered_items`: array of discovered resources
-- `sync_workflow_id`: ID of the started sync workflow
+- `status`: 'connected' | 'failed'
+- `discovered_files`: array of campaign files
 
-### Activities
+### Core Activities
 
-#### 1. InitiateOAuthActivity
-**Purpose**: Starts the OAuth flow for the specified platform
-**Input**: platform, redirect_uri
-**Output**: auth_url, state_token
-**Timeout**: 30 seconds
-**Retry Policy**: No retries (user-initiated action)
-
-#### 2. CompleteOAuthActivity
-**Purpose**: Exchanges OAuth code for tokens
-**Input**: platform, code, state_token
-**Output**: access_token, refresh_token, expires_at
+#### 1. HandleOAuthActivity
+**Purpose**: Complete OAuth flow with Google
+**Input**: authorization_code
+**Output**: access_token, refresh_token
 **Timeout**: 60 seconds
-**Retry Policy**: 3 retries with exponential backoff
+**Retry**: 3 times
 
-#### 3. ValidateConnectionActivity
-**Purpose**: Verifies the OAuth tokens work
-**Input**: platform, access_token
-**Output**: is_valid, user_info
-**Timeout**: 30 seconds
-**Retry Policy**: 2 retries
+#### 2. DiscoverCampaignFilesActivity
+**Purpose**: Find Google Sheets that look like campaign files
+**Input**: access_token
+**Output**: files[] (id, name, last_modified)
+**Timeout**: 2 minutes
+**Retry**: 3 times
 
-#### 4. DiscoverResourcesActivity
-**Purpose**: Discovers available resources (files, campaigns, accounts)
-**Input**: platform, access_token, discovery_params
-**Output**: resources[] (id, name, type, last_modified)
-**Timeout**: 5 minutes
-**Retry Policy**: 3 retries with exponential backoff
+### Simplified Flow
 
-#### 5. StoreIntegrationActivity
-**Purpose**: Persists integration details to database
-**Input**: workspace_id, platform, tokens, resources
-**Output**: integration_id
-**Timeout**: 30 seconds
-**Retry Policy**: 5 retries
+1. Wait for OAuth callback (10-minute timeout)
+2. Exchange code for tokens
+3. Discover campaign files in Drive
+4. Store integration in database
+5. Start Sync Workflow for discovered files
 
-### Workflow Logic
-
-1. **OAuth Flow**
-   - Execute InitiateOAuthActivity
-   - Wait for OAuth callback signal (with timeout)
-   - Execute CompleteOAuthActivity
-   - Execute ValidateConnectionActivity
-
-2. **Resource Discovery**
-   - Execute DiscoverResourcesActivity
-   - For Google Drive: Find spreadsheets matching campaign patterns
-   - For Meta/Google Ads: List available ad accounts
-
-3. **Setup Continuous Sync**
-   - Start child workflow: ContinuousSyncWorkflow
-   - Pass integration details and discovered resources
-
-### Signal Handlers
+### Single Signal Handler
 
 #### OAuthCallbackSignal
-**Purpose**: Receives OAuth callback data
-**Payload**: code, state, error
-**Handler Logic**: 
-- Validate state matches expected
-- Store code for CompleteOAuthActivity
-- Signal workflow to continue
+**Purpose**: Receive OAuth callback
+**Payload**: code, error
 
-### Query Handlers
-
-#### GetIntegrationStatusQuery
-**Purpose**: Check current integration progress
-**Response**: current_step, progress_percentage, discovered_count
-
-### Error Handling
-
-- **OAuth Timeout**: 10-minute timeout for user to complete OAuth
-- **Invalid Tokens**: Attempt token refresh once, then fail workflow
-- **API Rate Limits**: Use exponential backoff in retry policies
-- **Partial Success**: Continue with discovered resources even if some fail
-
-## 2. Sync Workflow
+## 2. Sync Workflow (Simplified)
 
 ### Purpose
-Maintains continuous synchronization between external platforms and our system. This is a long-running workflow that handles real-time updates.
+Polls Google Drive for changes to campaign files on a regular schedule.
 
 ### Workflow Definition
 
-**Workflow ID Pattern**: `sync-{workspace_id}-{platform}`
+**Workflow ID**: `sync-{workspace_id}`
 
-**Input Parameters**:
+**Input**:
 - `workspace_id`: string
-- `platform`: string
-- `integration_id`: string
-- `initial_resources`: array
+- `file_ids`: array of Google Drive file IDs
 
-**Long-Running Nature**: Uses Continue-As-New pattern every 1000 events
+**Long-Running**: Uses Continue-As-New every 24 hours
 
-### Activities
+### Core Activities
 
-#### 1. SetupWebhooksActivity
-**Purpose**: Configures webhooks/push notifications
-**Input**: platform, resource_id, webhook_url
-**Output**: webhook_id, expiration_time
-**Timeout**: 60 seconds
-**Retry Policy**: 3 retries
+#### 1. CheckForUpdatesActivity
+**Purpose**: Check if files have been modified
+**Input**: file_ids[], last_check_time
+**Output**: updated_files[] (id, last_modified)
+**Timeout**: 1 minute
+**Retry**: 3 times
 
-#### 2. PollForChangesActivity
-**Purpose**: Polls for changes when webhooks unavailable
-**Input**: platform, resource_id, last_sync_time
-**Output**: changes[] (type, resource_id, change_data)
-**Timeout**: 2 minutes
-**Retry Policy**: Unlimited with exponential backoff
-
-#### 3. FetchResourceActivity
-**Purpose**: Retrieves full resource data
-**Input**: platform, resource_id, access_token
-**Output**: resource_data, metadata
+#### 2. SyncFileActivity
+**Purpose**: Download and sync updated file
+**Input**: file_id, access_token
+**Output**: sync_status
 **Timeout**: 3 minutes
-**Retry Policy**: 5 retries with backoff
+**Retry**: 3 times
 
-#### 4. ProcessChangeActivity
-**Purpose**: Processes and stores changes
-**Input**: change_type, resource_data, workspace_id
-**Output**: processed_count, errors[]
-**Timeout**: 2 minutes
-**Retry Policy**: 3 retries
+### Simplified Flow
 
-### Workflow Logic
+1. Every 15 minutes:
+   - Check all files for updates
+   - For each updated file:
+     - Download latest version
+     - Parse and store in database
+2. Every 24 hours:
+   - Continue-As-New to reset history
 
-1. **Initialization**
-   - Set up webhooks for all resources (if supported)
-   - Schedule initial full sync
-   - Initialize sync state tracking
-
-2. **Main Sync Loop**
-   - Wait for signals or timeout (polling interval)
-   - Process webhook notifications via signals
-   - Execute periodic polls for platforms without webhooks
-   - Batch changes for efficiency
-
-3. **Change Processing**
-   - For each change detected:
-     - Fetch full resource data
-     - Process through child workflow if complex
-     - Update local state
-     - Emit events for UI updates
-
-4. **Continue-As-New Pattern**
-   - Every 1000 processed events
-   - Preserve essential state only
-   - Reset event history
-
-### Signal Handlers
-
-#### WebhookNotificationSignal
-**Purpose**: Receives webhook notifications
-**Payload**: platform, resource_id, change_type, timestamp
-**Handler Logic**:
-- Validate webhook signature
-- Queue for processing
-- Deduplicate if necessary
+### Single Signal Handler
 
 #### ForceRefreshSignal
-**Purpose**: Triggers immediate sync
-**Payload**: resource_ids[] (optional)
-**Handler Logic**:
-- Override polling schedule
-- Execute sync immediately
+**Purpose**: Trigger immediate sync
+**Payload**: file_id (optional)
 
-#### PauseResumeSignal
-**Purpose**: Pause/resume sync operations
-**Payload**: action ('pause' | 'resume')
-**Handler Logic**:
-- Update workflow state
-- Cancel/reschedule timers
-
-### Query Handlers
-
-#### GetSyncStatusQuery
-**Purpose**: Current sync state
-**Response**: 
-- last_sync_time
-- pending_changes_count
-- sync_errors[]
-- is_paused
-
-#### GetResourceStatusQuery
-**Purpose**: Status of specific resource
-**Response**:
-- resource_id
-- last_modified
-- sync_status
-- error_details
-
-### Child Workflows
-
-#### FileSyncWorkflow
-**Purpose**: Handles complex file synchronization
-**When Used**: Large files or complex transformations
-**Input**: file_id, sync_type
-**Parent Interaction**: Fire-and-forget with status updates
-
-### Error Handling
-
-- **Token Expiration**: Automatic refresh using stored refresh token
-- **Webhook Expiration**: Re-register webhooks before expiry
-- **API Rate Limits**: Adaptive polling intervals
-- **Network Failures**: Exponential backoff with jitter
-- **Data Conflicts**: Last-write-wins with conflict logging
-
-## 3. Planning Workflow
+## 3. Planning Workflow (Simplified)
 
 ### Purpose
-Orchestrates the complete campaign analysis process, coordinating data gathering and multi-agent analysis.
+Runs the AI agent analysis for a campaign.
 
 ### Workflow Definition
 
-**Workflow ID Pattern**: `planning-{campaign_id}-{timestamp}`
+**Workflow ID**: `planning-{campaign_id}-{timestamp}`
 
-**Input Parameters**:
+**Input**:
 - `campaign_id`: string
-- `user_id`: string
 - `workspace_id`: string
-- `analysis_params`: object
-  - `include_historical`: boolean
-  - `platforms`: array
-  - `date_range`: object
-  - `optimization_goals`: array
 
 **Output**:
 - `distribution_plan`: object
 - `insights`: array
-- `confidence_scores`: object
-- `recommendations`: array
+- `confidence_score`: number
 
-### Activities
+### Core Activities
 
 #### 1. GatherCampaignDataActivity
-**Purpose**: Collects all campaign-related data
-**Input**: campaign_id, workspace_id
-**Output**: campaign_data (budgets, dates, targets)
-**Timeout**: 2 minutes
-**Retry Policy**: 3 retries
+**Purpose**: Get campaign data from database
+**Input**: campaign_id
+**Output**: campaign_data
+**Timeout**: 30 seconds
+**Retry**: 2 times
 
-#### 2. FetchHistoricalPerformanceActivity
-**Purpose**: Retrieves historical performance data
-**Input**: client_id, platforms[], date_range
-**Output**: performance_metrics[]
+#### 2. RunAgentAnalysisActivity
+**Purpose**: Execute LangGraph multi-agent analysis
+**Input**: campaign_data
+**Output**: analysis_results
 **Timeout**: 5 minutes
-**Retry Policy**: 3 retries with backoff
+**Retry**: 1 time (expensive operation)
 
-#### 3. GatherMarketInsightsActivity
-**Purpose**: Collects market/industry data
-**Input**: industry, region, date_range
-**Output**: market_trends, benchmarks
-**Timeout**: 3 minutes
-**Retry Policy**: 3 retries
+### Simplified Flow
 
-#### 4. RunAgentAnalysisActivity
-**Purpose**: Executes multi-agent analysis
-**Input**: all_gathered_data
-**Output**: agent_outputs, execution_trace
-**Timeout**: 15 minutes
-**Retry Policy**: 1 retry (expensive operation)
+1. Gather campaign data from database
+2. Run agent analysis
+3. Return results
 
-#### 5. GenerateRecommendationsActivity
-**Purpose**: Synthesizes final recommendations
-**Input**: agent_outputs, campaign_constraints
-**Output**: recommendations, confidence_scores
-**Timeout**: 2 minutes
-**Retry Policy**: 2 retries
+### Single Query Handler
 
-### Workflow Logic
+#### GetProgressQuery
+**Purpose**: Check analysis progress
+**Response**: status, percent_complete
 
-1. **Data Gathering Phase**
-   - Parallel execution of:
-     - GatherCampaignDataActivity
-     - FetchHistoricalPerformanceActivity (if requested)
-     - GatherMarketInsightsActivity
-   - Wait for all to complete
-   - Validate data completeness
+## Simplified Interaction Patterns
 
-2. **Analysis Phase**
-   - Start child workflow: AgentAnalysisWorkflow
-   - Pass all gathered data
-   - Monitor progress via signals
-
-3. **Recommendation Generation**
-   - Process agent outputs
-   - Apply business rules
-   - Generate final recommendations
-
-4. **Result Caching**
-   - Cache results for quick retrieval
-   - Set appropriate TTL
-
-### Signal Handlers
-
-#### UpdateAnalysisParamsSignal
-**Purpose**: Modify analysis parameters mid-flight
-**Payload**: updated_params
-**Handler Logic**:
-- Validate if changes are safe
-- Update parameters
-- Restart affected activities
-
-#### CancelAnalysisSignal
-**Purpose**: Cancel ongoing analysis
-**Payload**: reason
-**Handler Logic**:
-- Cancel child workflows
-- Clean up resources
-- Return partial results if available
-
-### Query Handlers
-
-#### GetAnalysisProgressQuery
-**Purpose**: Current analysis progress
-**Response**:
-- current_phase
-- percent_complete
-- estimated_time_remaining
-- completed_steps[]
-
-#### GetPartialResultsQuery
-**Purpose**: Retrieve available partial results
-**Response**:
-- available_data
-- completion_status
-- missing_components[]
-
-### Child Workflows
-
-#### AgentAnalysisWorkflow
-**Purpose**: Coordinates multi-agent analysis
-**Input**: analysis_data, agent_config
-**Output**: agent_decisions, insights
-**Interaction Pattern**: 
-- Parent monitors via queries
-- Can be cancelled by parent
-- Sends progress signals to parent
-
-### Error Handling
-
-- **Data Availability**: Proceed with available data, note gaps
-- **Agent Failures**: Fallback to simpler analysis
-- **Timeout Handling**: Return best available results
-- **Resource Limits**: Implement circuit breakers
-
-## Workflow Interaction Patterns
-
-### 1. Integration → Sync Workflow
+### 1. User Connects Google Drive
 ```
-Integration Workflow starts Sync Workflow as child
-- Pattern: Fire-and-forget
-- Parent Close Policy: ABANDON (sync continues independently)
-- Communication: None after start
+API → Integration Workflow
+  → Discovers files
+  → Starts Sync Workflow (fire-and-forget)
 ```
 
-### 2. User Trigger → Planning Workflow
+### 2. Background Sync
 ```
-API starts Planning Workflow
-- Pattern: Synchronous execution
-- Timeout: 20 minutes total
-- Progress Updates: Via queries
-```
-
-### 3. Sync → Planning Workflow
-```
-Sync Workflow can trigger Planning Workflow
-- Pattern: Signal to existing or start new
-- Trigger: Significant data changes
-- Deduplication: By campaign_id and time window
+Sync Workflow (runs continuously)
+  → Polls every 15 minutes
+  → Updates changed files
 ```
 
-## Best Practices & Implementation Guidelines
+### 3. User Requests Analysis
+```
+API → Planning Workflow
+  → Gathers data
+  → Runs agents
+  → Returns results
+```
 
-### 1. Workflow Design
-- **Idempotency**: All activities must be idempotent
-- **Determinism**: No randomness or system time in workflow code
-- **State Size**: Keep workflow state under 2MB
-- **History Size**: Use Continue-As-New for long-running workflows
+## Implementation Guidelines
 
-### 2. Activity Design
-- **Timeout Strategy**: Set realistic timeouts with buffers
-- **Retry Policy**: Use exponential backoff for external APIs
-- **Error Types**: Distinguish between retryable and non-retryable
-- **Heartbeating**: Use for long-running activities (>1 minute)
+### 1. Start Simple
+- Begin with Google Drive only
+- Add other integrations later
+- Use simple polling instead of webhooks initially
 
-### 3. Signal & Query Design
-- **Signal Validation**: Always validate signal payloads
-- **Query Efficiency**: Queries should be fast (<100ms)
-- **Signal Deduplication**: Implement idempotency keys
-- **Query Caching**: Cache expensive query results
+### 2. Essential Error Handling
+- Retry transient failures
+- Log permanent failures
+- Always return a result (even if partial)
 
-### 4. Error Handling Strategy
-- **Graceful Degradation**: Always return best available results
-- **Error Classification**: Categorize errors for appropriate handling
-- **Compensation**: Implement cleanup for partial failures
-- **Monitoring**: Emit metrics for all error conditions
+### 3. Basic Monitoring
+- Log workflow starts/completions
+- Track activity failures
+- Monitor sync lag
 
-### 5. Testing Strategy
-- **Unit Tests**: Test activities in isolation
-- **Workflow Tests**: Use Temporal test framework
-- **Integration Tests**: Test with real external services
-- **Replay Tests**: Ensure workflow determinism
+### 4. Security Basics
+- Encrypt tokens in database
+- Validate workspace access
+- Use environment variables for secrets
 
-### 6. Monitoring & Observability
-- **Metrics**: Workflow duration, activity success rates
-- **Logging**: Structured logs with correlation IDs
-- **Tracing**: Distributed tracing across workflows
-- **Alerting**: Set up alerts for workflow failures
+## What We Removed
 
-## Security Considerations
+### 1. Over-Engineered Features
+- ❌ Multiple signal/query handlers per workflow
+- ❌ Complex child workflow orchestration
+- ❌ Webhooks (use polling for MVP)
+- ❌ Pause/resume functionality
+- ❌ Real-time progress updates
+- ❌ Partial result queries
+- ❌ Complex caching strategies
+- ❌ Market insights gathering
 
-### 1. Token Management
-- Encrypt tokens at rest
-- Use activity interceptors for token injection
-- Implement token refresh in activities
-- Never log tokens
+### 2. Premature Optimizations
+- ❌ Parallel activity execution
+- ❌ Batching and deduplication
+- ❌ Circuit breakers
+- ❌ Adaptive polling intervals
 
-### 2. Data Isolation
-- Validate workspace_id in all activities
-- Use row-level security in database
-- Implement audit logging
+### 3. Nice-to-Have Error Handling
+- ❌ Compensation workflows
+- ❌ Complex retry strategies
+- ❌ Partial success handling
 
-### 3. Rate Limiting
-- Implement per-user rate limits
-- Use Temporal's task queue throttling
-- Monitor for abuse patterns
+## MVP Development Order
 
-## Performance Optimization
+### Phase 1: Integration Workflow
+1. Implement OAuth with Google Drive
+2. Basic file discovery
+3. Store integration details
 
-### 1. Parallel Execution
-- Use Promise.all / workflow.Go for parallel activities
-- Batch API calls where possible
-- Implement connection pooling
+### Phase 2: Sync Workflow
+1. Simple polling mechanism
+2. File download and parsing
+3. Database updates
 
-### 2. Caching Strategy
-- Cache external API responses
-- Use workflow-level caching for expensive operations
-- Implement cache warming for predictable queries
+### Phase 3: Planning Workflow
+1. Data gathering from DB
+2. Agent analysis integration
+3. Result storage
 
-### 3. Resource Management
-- Limit concurrent child workflows
-- Implement backpressure mechanisms
-- Use appropriate worker pool sizes
+## Key Simplifications
 
-This comprehensive workflow orchestration plan provides the foundation for building a robust, scalable, and maintainable system that can handle complex integrations and long-running synchronization tasks while providing intelligent campaign analysis capabilities.
+1. **One Platform**: Start with Google Drive only
+2. **Polling Only**: No webhooks in MVP
+3. **Simple Flows**: Linear execution, minimal branching
+4. **Basic Errors**: Retry or fail, no complex recovery
+5. **Essential Signals**: One signal per workflow maximum
+6. **No Child Workflows**: Keep it flat and simple
+
+## Next Steps After MVP
+
+Once the simplified version is working:
+1. Add Meta and Google Ads integrations
+2. Implement webhooks for real-time updates
+3. Add more sophisticated error handling
+4. Introduce performance optimizations
+5. Add monitoring and alerting
+
+This simplified plan focuses on delivering core value quickly while maintaining a solid foundation for future enhancements.

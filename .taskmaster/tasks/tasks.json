@@ -5,12 +5,66 @@
         "id": 1,
         "title": "Set up FastAPI Backend Service",
         "description": "Deploy a Python backend service using FastAPI to serve as the API gateway for new features.",
-        "details": "1. Initialize a new Python project using Poetry for dependency management.\n2. Install FastAPI and required dependencies (uvicorn, pydantic, etc.).\n3. Set up a basic FastAPI application structure.\n4. Implement CORS middleware for frontend communication.\n5. Create initial API routes for health check and version info.\n6. Set up Docker containerization for the FastAPI service.\n7. Implement connection to existing Supabase database.\n8. Create an authentication bridge to use existing Supabase auth.\n9. Set up logging and error handling.\n10. Write unit tests for initial endpoints.\n11. Configure CI/CD pipeline for automated testing and deployment.",
+        "details": "1. Initialize a new Python project using Poetry for dependency management.\n2. Install FastAPI and required dependencies (uvicorn, pydantic, etc.).\n3. Set up a basic FastAPI application structure.\n4. Implement CORS middleware for frontend communication.\n5. Create initial API routes for health check and version info.\n6. Set up Docker containerization for the FastAPI service.\n7. Implement connection to existing Supabase database.\n8. Create an authentication bridge to use existing Supabase auth.\n9. Set up logging and error handling.\n10. Write unit tests for initial endpoints.\n11. Configure CI/CD pipeline for automated testing and deployment.\n<info added on 2025-06-17T17:30:31.788Z>\n12. Research and implement FastAPI best practices for media planning platforms:\n   - Design multi-tenant database schema with appropriate partitioning strategies\n   - Implement efficient API structure for campaign management workflows\n   - Set up real-time analytics using TimescaleDB or ClickHouse\n   - Configure connection pooling and caching with Redis\n   - Implement asynchronous processing for long-running tasks\n   - Set up proper security measures including JWT authentication and RBAC\n   - Create comprehensive testing strategy (unit, integration, performance)\n   - Document API using FastAPI's built-in Swagger UI and ReDoc\n</info added on 2025-06-17T17:30:31.788Z>",
         "testStrategy": "1. Write unit tests for each endpoint using pytest.\n2. Implement integration tests for database connections.\n3. Use FastAPI's TestClient for API testing.\n4. Set up CI pipeline to run tests on each commit.\n5. Perform manual testing of the deployed service.",
         "priority": "high",
         "dependencies": [],
         "status": "pending",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize FastAPI Project with Poetry",
+            "description": "Set up the project structure and dependencies using Poetry for the FastAPI backend service.",
+            "dependencies": [],
+            "details": "Run 'poetry init' to create pyproject.toml. Configure build system and add dependencies (fastapi, uvicorn, pydantic, supabase-py). Set up dependency groups (main, dev, test). Create main.py as entry point and implement basic FastAPI app structure.",
+            "status": "pending",
+            "testStrategy": "Verify pyproject.toml contents and run 'poetry install' to ensure all dependencies are correctly installed."
+          },
+          {
+            "id": 2,
+            "title": "Implement Core FastAPI Functionality",
+            "description": "Set up the main FastAPI application with essential middleware and initial endpoints.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement CORS middleware for frontend communication. Create health check and version info endpoints. Set up proper error handling and logging. Implement TestClient for comprehensive testing of initial endpoints.",
+            "status": "pending",
+            "testStrategy": "Use TestClient to write unit tests for health check and version endpoints. Test CORS middleware functionality."
+          },
+          {
+            "id": 3,
+            "title": "Integrate Supabase and Implement Authentication",
+            "description": "Set up Supabase integration and implement authentication using existing Supabase auth.",
+            "dependencies": [
+              2
+            ],
+            "details": "Use supabase-py client for integration. Set up environment variables for SUPABASE_URL and SUPABASE_KEY. Implement authentication bridge using existing Supabase auth. Set up proper connection pooling for database access.",
+            "status": "pending",
+            "testStrategy": "Write integration tests for Supabase connection and authentication flow. Test database connection pooling under load."
+          },
+          {
+            "id": 4,
+            "title": "Containerize FastAPI Service",
+            "description": "Set up Docker containerization for the FastAPI service with proper configurations.",
+            "dependencies": [
+              3
+            ],
+            "details": "Create Dockerfile using FastAPI-specific base image. Set up multi-stage build for optimized container size. Configure environment-specific settings. Implement proper ENTRYPOINT and CMD instructions for running the FastAPI app with Uvicorn.",
+            "status": "pending",
+            "testStrategy": "Build Docker image and run container locally to ensure all components work correctly within the containerized environment."
+          },
+          {
+            "id": 5,
+            "title": "Configure CI/CD Pipeline",
+            "description": "Set up automated testing and deployment pipeline for the FastAPI service.",
+            "dependencies": [
+              4
+            ],
+            "details": "Create CI/CD configuration file (e.g., .gitlab-ci.yml or .github/workflows/main.yml). Set up stages for linting, testing, building Docker image, and deploying to staging/production environments. Implement proper secret management for sensitive information.",
+            "status": "pending",
+            "testStrategy": "Run CI/CD pipeline in a test environment to ensure all stages complete successfully, including automated tests and deployment to a staging environment."
+          }
+        ]
       },
       {
         "id": 2,

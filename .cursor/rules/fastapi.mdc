@@ -1,0 +1,482 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# FastAPI Development Guidelines
+
+**Comprehensive guidelines for building scalable FastAPI applications with focus on media planning platforms, multi-tenant architecture, and performance optimization.**
+
+## **Project Structure & Setup**
+
+- **Use Poetry for dependency management**
+  - Initialize with `poetry init` and configure proper `pyproject.toml`
+  - Set up dependency groups: main, dev, test, docs
+  - Use `poetry add` for adding dependencies with proper version constraints
+
+- **Follow standard FastAPI project structure**
+  ```
+  project/
+  ├── main.py                 # FastAPI app entry point
+  ├── app/
+  │   ├── __init__.py
+  │   ├── api/
+  │   │   ├── __init__.py
+  │   │   ├── v1/
+  │   │   │   ├── __init__.py
+  │   │   │   ├── endpoints/
+  │   │   │   └── deps.py     # Dependencies
+  │   ├── core/
+  │   │   ├── config.py       # Settings
+  │   │   ├── security.py     # Auth logic
+  │   │   └── database.py     # DB connection
+  │   ├── models/             # SQLAlchemy models
+  │   ├── schemas/            # Pydantic models
+  │   ├── crud/               # Database operations
+  │   └── services/           # Business logic
+  ├── tests/
+  ├── pyproject.toml
+  └── Dockerfile
+  ```
+
+## **Application Configuration**
+
+- **Use Pydantic Settings for configuration**
+  ```python
+  # ✅ DO: Use Pydantic BaseSettings
+  from pydantic_settings import BaseSettings
+  
+  class Settings(BaseSettings):
+      app_name: str = "Media Planning API"
+      supabase_url: str
+      supabase_key: str
+      redis_url: str = "redis://localhost:6379"
+      
+      class Config:
+          env_file = ".env"
+  
+  settings = Settings()
+  ```
+
+- **Environment-specific configurations**
+  - Use `.env` files for local development
+  - Use environment variables in production
+  - Never commit sensitive credentials to version control
+
+## **FastAPI Application Setup**
+
+- **Initialize FastAPI with proper configuration**
+  ```python
+  # ✅ DO: Proper FastAPI initialization
+  from fastapi import FastAPI
+  from fastapi.middleware.cors import CORSMiddleware
+  
+  app = FastAPI(
+      title="Media Planning API",
+      description="API for comprehensive media planning platform",
+      version="1.0.0",
+      docs_url="/api/docs",
+      redoc_url="/api/redoc"
+  )
+  
+  # Configure CORS middleware
+  app.add_middleware(
+      CORSMiddleware,
+      allow_origins=["http://localhost:3000"],  # Frontend URLs
+      allow_credentials=True,
+      allow_methods=["*"],
+      allow_headers=["*"],
+  )
+  ```
+
+- **Use dependency injection for database sessions**
+  ```python
+  # ✅ DO: Proper dependency injection
+  from sqlalchemy.orm import Session
+  
+  def get_db():
+      db = SessionLocal()
+      try:
+          yield db
+      finally:
+          db.close()
+  
+  @app.get("/campaigns/")
+  def list_campaigns(db: Session = Depends(get_db)):
+      return crud.get_campaigns(db)
+  ```
+
+## **Multi-Tenant Architecture**
+
+- **Implement tenant-aware database queries**
+  ```python
+  # ✅ DO: Always include tenant context
+  def get_campaigns(db: Session, tenant_id: str, skip: int = 0, limit: int = 100):
+      return db.query(Campaign).filter(
+          Campaign.tenant_id == tenant_id
+      ).offset(skip).limit(limit).all()
+  
+  @app.get("/tenants/{tenant_id}/campaigns")
+  def list_campaigns(tenant_id: str, db: Session = Depends(get_db)):
+      return crud.get_campaigns(db, tenant_id=tenant_id)
+  ```
+
+- **Use middleware for tenant context**
+  ```python
+  # ✅ DO: Tenant context middleware
+  @app.middleware("http")
+  async def add_tenant_context(request: Request, call_next):
+      tenant_id = request.path_params.get("tenant_id")
+      if tenant_id:
+          request.state.tenant_id = tenant_id
+      response = await call_next(request)
+      return response
+  ```
+
+## **Database Integration**
+
+- **Use Supabase with proper connection pooling**
+  ```python
+  # ✅ DO: Proper Supabase client setup
+  import os
+  from supabase import create_client, Client
+  
+  url: str = os.environ.get("SUPABASE_URL")
+  key: str = os.environ.get("SUPABASE_KEY")
+  supabase: Client = create_client(url, key)
+  
+  # Use connection pooling for SQLAlchemy
+  from sqlalchemy import create_engine
+  from sqlalchemy.orm import sessionmaker
+  
+  engine = create_engine(
+      DATABASE_URL,
+      pool_size=20,
+      max_overflow=0,
+      pool_pre_ping=True
+  )
+  SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+  ```
+
+- **Implement proper database indexes**
+  ```sql
+  -- ✅ DO: Create indexes for tenant-aware queries
+  CREATE INDEX idx_campaigns_tenant_id ON campaigns(tenant_id);
+  CREATE INDEX idx_campaigns_tenant_status ON campaigns(tenant_id, status);
+  CREATE INDEX idx_metrics_campaign_date ON metrics(campaign_id, date DESC);
+  ```
+
+## **API Design Patterns**
+
+- **Use proper HTTP methods and status codes**
+  ```python
+  # ✅ DO: RESTful API design
+  @app.post("/tenants/{tenant_id}/campaigns", status_code=201)
+  def create_campaign(
+      tenant_id: str,
+      campaign: CampaignCreate,
+      db: Session = Depends(get_db)
+  ):
+      return crud.create_campaign(db, tenant_id=tenant_id, campaign=campaign)
+  
+  @app.get("/tenants/{tenant_id}/campaigns/{campaign_id}")
+  def get_campaign(tenant_id: str, campaign_id: int, db: Session = Depends(get_db)):
+      campaign = crud.get_campaign(db, tenant_id=tenant_id, campaign_id=campaign_id)
+      if not campaign:
+          raise HTTPException(status_code=404, detail="Campaign not found")
+      return campaign
+  ```
+
+- **Use Pydantic models for request/response validation**
+  ```python
+  # ✅ DO: Proper Pydantic models
+  from pydantic import BaseModel, Field
+  from datetime import date
+  from typing import Optional
+  
+  class CampaignBase(BaseModel):
+      name: str = Field(..., min_length=1, max_length=255)
+      type: str = Field(..., regex="^(display|search|video|social)$")
+      start_date: date
+      end_date: date
+      budget: float = Field(..., gt=0)
+  
+  class CampaignCreate(CampaignBase):
+      pass
+  
+  class CampaignResponse(CampaignBase):
+      id: int
+      tenant_id: str
+      status: str
+      created_at: datetime
+      
+      class Config:
+          from_attributes = True
+  ```
+
+## **Authentication & Security**
+
+- **Implement JWT-based authentication**
+  ```python
+  # ✅ DO: Proper JWT authentication
+  from fastapi import Depends, HTTPException, status
+  from fastapi.security import OAuth2PasswordBearer
+  
+  oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+  
+  def get_current_user(token: str = Depends(oauth2_scheme)):
+      try:
+          payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+          user_id: str = payload.get("sub")
+          if user_id is None:
+              raise credentials_exception
+      except JWTError:
+          raise credentials_exception
+      return get_user(user_id=user_id)
+  
+  @app.get("/protected-route")
+  def protected_route(current_user: User = Depends(get_current_user)):
+      return {"message": f"Hello {current_user.email}"}
+  ```
+
+- **Use Supabase Auth integration**
+  ```python
+  # ✅ DO: Supabase auth integration
+  def verify_supabase_token(token: str):
+      try:
+          user = supabase.auth.get_user(token)
+          return user
+      except Exception:
+          raise HTTPException(
+              status_code=status.HTTP_401_UNAUTHORIZED,
+              detail="Invalid authentication credentials"
+          )
+  ```
+
+## **Performance Optimization**
+
+- **Implement caching with Redis**
+  ```python
+  # ✅ DO: Use caching for expensive operations
+  from fastapi_cache import FastAPICache
+  from fastapi_cache.backends.redis import RedisBackend
+  from fastapi_cache.decorator import cache
+  
+  @app.on_event("startup")
+  async def startup():
+      redis = aioredis.from_url("redis://localhost")
+      FastAPICache.init(RedisBackend(redis), prefix="api-cache:")
+  
+  @app.get("/campaigns/{campaign_id}/summary")
+  @cache(expire=300)  # Cache for 5 minutes
+  async def get_campaign_summary(campaign_id: int):
+      return await compute_campaign_summary(campaign_id)
+  ```
+
+- **Use async endpoints for I/O operations**
+  ```python
+  # ✅ DO: Use async for I/O bound operations
+  @app.get("/campaigns/{campaign_id}/metrics")
+  async def get_campaign_metrics(campaign_id: int):
+      metrics = await fetch_metrics_async(campaign_id)
+      return metrics
+  
+  # ❌ DON'T: Use sync for I/O bound operations
+  @app.get("/campaigns/{campaign_id}/metrics")
+  def get_campaign_metrics(campaign_id: int):
+      metrics = fetch_metrics_sync(campaign_id)  # Blocks event loop
+      return metrics
+  ```
+
+- **Implement background tasks for long-running operations**
+  ```python
+  # ✅ DO: Use background tasks
+  from fastapi import BackgroundTasks
+  
+  @app.post("/reports/generate")
+  async def generate_report(
+      report_config: ReportConfig,
+      background_tasks: BackgroundTasks
+  ):
+      report_id = create_report_job(report_config)
+      background_tasks.add_task(generate_report_async, report_id, report_config)
+      return {"report_id": report_id, "status": "processing"}
+  ```
+
+## **Testing Strategy**
+
+- **Use TestClient for endpoint testing**
+  ```python
+  # ✅ DO: Comprehensive testing with TestClient
+  from fastapi.testclient import TestClient
+  from main import app
+  
+  client = TestClient(app)
+  
+  def test_create_campaign():
+      response = client.post(
+          "/tenants/test-tenant/campaigns",
+          json={
+              "name": "Test Campaign",
+              "type": "display",
+              "start_date": "2024-01-01",
+              "end_date": "2024-12-31",
+              "budget": 10000
+          },
+          headers={"Authorization": "Bearer test-token"}
+      )
+      assert response.status_code == 201
+      assert response.json()["name"] == "Test Campaign"
+  
+  def test_get_campaign_unauthorized():
+      response = client.get("/tenants/test-tenant/campaigns/1")
+      assert response.status_code == 401
+  ```
+
+- **Mock external dependencies in tests**
+  ```python
+  # ✅ DO: Mock external services
+  from unittest.mock import patch
+  
+  @patch('app.services.supabase_client.get_user')
+  def test_protected_endpoint(mock_get_user):
+      mock_get_user.return_value = {"id": "user123", "email": "test@example.com"}
+      response = client.get("/protected", headers={"Authorization": "Bearer token"})
+      assert response.status_code == 200
+  ```
+
+## **Error Handling**
+
+- **Use proper HTTP exceptions**
+  ```python
+  # ✅ DO: Proper error handling
+  from fastapi import HTTPException, status
+  
+  @app.get("/campaigns/{campaign_id}")
+  def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
+      campaign = crud.get_campaign(db, campaign_id=campaign_id)
+      if not campaign:
+          raise HTTPException(
+              status_code=status.HTTP_404_NOT_FOUND,
+              detail=f"Campaign with id {campaign_id} not found"
+          )
+      return campaign
+  ```
+
+- **Implement global exception handlers**
+  ```python
+  # ✅ DO: Global exception handling
+  from fastapi.responses import JSONResponse
+  
+  @app.exception_handler(ValueError)
+  async def value_error_handler(request: Request, exc: ValueError):
+      return JSONResponse(
+          status_code=400,
+          content={"message": f"Invalid value: {str(exc)}"}
+      )
+  ```
+
+## **Common Anti-Patterns to Avoid**
+
+- **❌ DON'T: Hardcode configuration values**
+  ```python
+  # ❌ DON'T
+  app = FastAPI(title="My API")  # Hardcoded values
+  
+  # ✅ DO
+  app = FastAPI(title=settings.app_name)
+  ```
+
+- **❌ DON'T: Use sync database operations in async endpoints**
+  ```python
+  # ❌ DON'T
+  @app.get("/campaigns/")
+  async def get_campaigns():
+      return db.query(Campaign).all()  # Sync operation in async endpoint
+  ```
+
+- **❌ DON'T: Skip input validation**
+  ```python
+  # ❌ DON'T
+  @app.post("/campaigns/")
+  def create_campaign(campaign: dict):  # No validation
+      return crud.create_campaign(campaign)
+  
+  # ✅ DO
+  @app.post("/campaigns/")
+  def create_campaign(campaign: CampaignCreate):  # Pydantic validation
+      return crud.create_campaign(campaign)
+  ```
+
+- **❌ DON'T: Expose internal implementation details**
+  ```python
+  # ❌ DON'T
+  @app.get("/campaigns/")
+  def get_campaigns():
+      return db.query(Campaign).all()  # Returns SQLAlchemy objects
+  
+  # ✅ DO
+  @app.get("/campaigns/", response_model=List[CampaignResponse])
+  def get_campaigns():
+      campaigns = db.query(Campaign).all()
+      return campaigns  # Pydantic serialization
+  ```
+
+## **Docker Configuration**
+
+- **Use multi-stage Docker builds**
+  ```dockerfile
+  # ✅ DO: Multi-stage build
+  FROM python:3.11-slim as builder
+  
+  WORKDIR /app
+  RUN pip install poetry
+  COPY pyproject.toml poetry.lock ./
+  RUN poetry config virtualenvs.create false \
+      && poetry install --no-dev --no-interaction --no-ansi
+  
+  FROM python:3.11-slim as production
+  
+  WORKDIR /app
+  COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+  COPY --from=builder /usr/local/bin /usr/local/bin
+  COPY . .
+  
+  EXPOSE 8000
+  CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+  ```
+
+## **Monitoring & Observability**
+
+- **Implement proper logging**
+  ```python
+  # ✅ DO: Structured logging
+  import logging
+  from pythonjsonlogger import jsonlogger
+  
+  logger = logging.getLogger(__name__)
+  handler = logging.StreamHandler()
+  formatter = jsonlogger.JsonFormatter()
+  handler.setFormatter(formatter)
+  logger.addHandler(handler)
+  logger.setLevel(logging.INFO)
+  
+  @app.middleware("http")
+  async def log_requests(request: Request, call_next):
+      start_time = time.time()
+      response = await call_next(request)
+      process_time = time.time() - start_time
+      
+      logger.info(
+          "Request processed",
+          extra={
+              "method": request.method,
+              "url": str(request.url),
+              "status_code": response.status_code,
+              "process_time": process_time
+          }
+      )
+      return response
+  ```
+
+This rule provides comprehensive guidelines for building robust, scalable FastAPI applications specifically tailored for media planning platforms with multi-tenant architecture and real-time analytics capabilities.

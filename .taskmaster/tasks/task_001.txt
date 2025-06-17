@@ -16,6 +16,17 @@
 9. Set up logging and error handling.
 10. Write unit tests for initial endpoints.
 11. Configure CI/CD pipeline for automated testing and deployment.
+<info added on 2025-06-17T17:30:31.788Z>
+12. Research and implement FastAPI best practices for media planning platforms:
+   - Design multi-tenant database schema with appropriate partitioning strategies
+   - Implement efficient API structure for campaign management workflows
+   - Set up real-time analytics using TimescaleDB or ClickHouse
+   - Configure connection pooling and caching with Redis
+   - Implement asynchronous processing for long-running tasks
+   - Set up proper security measures including JWT authentication and RBAC
+   - Create comprehensive testing strategy (unit, integration, performance)
+   - Document API using FastAPI's built-in Swagger UI and ReDoc
+</info added on 2025-06-17T17:30:31.788Z>
 
 # Test Strategy:
 1. Write unit tests for each endpoint using pytest.
@@ -23,3 +34,35 @@
 3. Use FastAPI's TestClient for API testing.
 4. Set up CI pipeline to run tests on each commit.
 5. Perform manual testing of the deployed service.
+
+# Subtasks:
+## 1. Initialize FastAPI Project with Poetry [pending]
+### Dependencies: None
+### Description: Set up the project structure and dependencies using Poetry for the FastAPI backend service.
+### Details:
+Run 'poetry init' to create pyproject.toml. Configure build system and add dependencies (fastapi, uvicorn, pydantic, supabase-py). Set up dependency groups (main, dev, test). Create main.py as entry point and implement basic FastAPI app structure.
+
+## 2. Implement Core FastAPI Functionality [pending]
+### Dependencies: 1.1
+### Description: Set up the main FastAPI application with essential middleware and initial endpoints.
+### Details:
+Implement CORS middleware for frontend communication. Create health check and version info endpoints. Set up proper error handling and logging. Implement TestClient for comprehensive testing of initial endpoints.
+
+## 3. Integrate Supabase and Implement Authentication [pending]
+### Dependencies: 1.2
+### Description: Set up Supabase integration and implement authentication using existing Supabase auth.
+### Details:
+Use supabase-py client for integration. Set up environment variables for SUPABASE_URL and SUPABASE_KEY. Implement authentication bridge using existing Supabase auth. Set up proper connection pooling for database access.
+
+## 4. Containerize FastAPI Service [pending]
+### Dependencies: 1.3
+### Description: Set up Docker containerization for the FastAPI service with proper configurations.
+### Details:
+Create Dockerfile using FastAPI-specific base image. Set up multi-stage build for optimized container size. Configure environment-specific settings. Implement proper ENTRYPOINT and CMD instructions for running the FastAPI app with Uvicorn.
+
+## 5. Configure CI/CD Pipeline [pending]
+### Dependencies: 1.4
+### Description: Set up automated testing and deployment pipeline for the FastAPI service.
+### Details:
+Create CI/CD configuration file (e.g., .gitlab-ci.yml or .github/workflows/main.yml). Set up stages for linting, testing, building Docker image, and deploying to staging/production environments. Implement proper secret management for sensitive information.
+

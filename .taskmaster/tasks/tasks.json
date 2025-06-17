@@ -1,0 +1,281 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Set up FastAPI Backend Service",
+        "description": "Deploy a Python backend service using FastAPI to serve as the API gateway for new features.",
+        "details": "1. Initialize a new Python project using Poetry for dependency management.\n2. Install FastAPI and required dependencies (uvicorn, pydantic, etc.).\n3. Set up a basic FastAPI application structure.\n4. Implement CORS middleware for frontend communication.\n5. Create initial API routes for health check and version info.\n6. Set up Docker containerization for the FastAPI service.\n7. Implement connection to existing Supabase database.\n8. Create an authentication bridge to use existing Supabase auth.\n9. Set up logging and error handling.\n10. Write unit tests for initial endpoints.\n11. Configure CI/CD pipeline for automated testing and deployment.",
+        "testStrategy": "1. Write unit tests for each endpoint using pytest.\n2. Implement integration tests for database connections.\n3. Use FastAPI's TestClient for API testing.\n4. Set up CI pipeline to run tests on each commit.\n5. Perform manual testing of the deployed service.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Deploy Temporal Workflow Engine",
+        "description": "Set up and deploy a Temporal cluster to manage long-running integrations, sync operations, and analysis workflows.",
+        "details": "1. Set up a Temporal cluster using Docker Compose.\n2. Install Temporal client SDK for Python.\n3. Define initial workflow definitions for Integration, Sync, and Planning.\n4. Implement activity handlers for each workflow.\n5. Create a connection between FastAPI and Temporal.\n6. Set up Temporal Web UI for monitoring and debugging.\n7. Implement error handling and retry mechanisms.\n8. Configure persistence for workflow history.\n9. Set up metrics and monitoring for Temporal cluster.\n10. Write documentation for workflow definitions and usage.",
+        "testStrategy": "1. Write unit tests for individual activities.\n2. Implement integration tests for complete workflows.\n3. Use Temporal's testing framework for workflow testing.\n4. Perform load testing to ensure scalability.\n5. Conduct failure scenario testing to verify fault tolerance.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Implement Google OAuth Flow",
+        "description": "Create a secure OAuth flow for Google services integration, including Drive, Sheets, and Ads.",
+        "details": "1. Set up a Google Cloud Project and configure OAuth consent screen.\n2. Generate OAuth 2.0 credentials (client ID and secret).\n3. Implement OAuth flow using Temporal for state management.\n4. Create endpoints in FastAPI for initiating OAuth and handling callbacks.\n5. Implement token storage in Supabase with encryption.\n6. Set up automatic token refresh mechanism.\n7. Implement permission management and scopes.\n8. Create a user-friendly consent handling UI.\n9. Implement error handling for OAuth failures.\n10. Set up logging for OAuth-related events.",
+        "testStrategy": "1. Create mock OAuth server for testing.\n2. Write unit tests for OAuth-related functions.\n3. Implement integration tests for the complete OAuth flow.\n4. Perform security audits on token storage and handling.\n5. Conduct user acceptance testing for the consent flow.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Develop Google Drive Integration",
+        "description": "Implement Google Drive integration for file discovery and synchronization.",
+        "details": "1. Use Google Drive API v3 for file operations.\n2. Implement file discovery algorithm using pattern matching.\n3. Create a Temporal workflow for 15-minute polling and sync.\n4. Develop change detection logic to minimize API calls.\n5. Implement data extraction from Google Sheets.\n6. Create a user interface for Drive connection and file management.\n7. Develop a sync status dashboard in the UI.\n8. Implement error handling and retry mechanisms for sync failures.\n9. Set up logging and monitoring for sync operations.\n10. Optimize for Google Drive API quotas and rate limits.",
+        "testStrategy": "1. Write unit tests for file discovery and sync logic.\n2. Create integration tests using Google Drive API test accounts.\n3. Implement end-to-end tests for the complete sync workflow.\n4. Perform load testing to ensure scalability of sync operations.\n5. Conduct user acceptance testing for the file management interface.",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Set up LangGraph for Multi-Agent System",
+        "description": "Deploy and configure LangGraph to create a multi-agent system for intelligent campaign planning.",
+        "details": "1. Install LangGraph and required dependencies.\n2. Set up connection to Supabase for data persistence.\n3. Define agent configurations for Workspace, Planning, and Insights agents.\n4. Implement tool definitions for each agent.\n5. Create a supervisor agent to orchestrate the multi-agent system.\n6. Implement communication protocols between agents.\n7. Set up error handling and logging for the agent system.\n8. Create a mechanism for agents to access and update shared state.\n9. Implement rate limiting and resource management for agent operations.\n10. Write documentation for the multi-agent system architecture.",
+        "testStrategy": "1. Write unit tests for individual agent tools.\n2. Implement integration tests for inter-agent communication.\n3. Create scenario-based tests for complex agent interactions.\n4. Perform load testing to ensure system scalability.\n5. Conduct end-to-end tests for complete planning workflows.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Develop Workspace Agent",
+        "description": "Create a Workspace Agent to handle Google Sheet parsing and data extraction.",
+        "details": "1. Implement Google Sheets API integration.\n2. Develop sheet parsing logic for campaign data.\n3. Create data validation rules for extracted information.\n4. Implement campaign structure extraction.\n5. Develop budget extraction and validation.\n6. Create error handling for malformed or unexpected data.\n7. Implement caching mechanism for parsed data.\n8. Develop versioning for extracted campaign information.\n9. Create logging for all workspace operations.\n10. Implement rate limiting to respect Google Sheets API quotas.",
+        "testStrategy": "1. Write unit tests for individual parsing functions.\n2. Create integration tests with sample Google Sheets.\n3. Implement error case testing for various data formats.\n4. Perform load testing with large datasets.\n5. Conduct end-to-end tests for the complete extraction process.",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Implement Enhanced Planning Agent",
+        "description": "Develop an intelligent Planning Agent to replace the current rule-based distribution system with a data-driven, adaptive approach.",
+        "details": "1. Remove hardcoded percentage distributions.\n2. Implement machine learning model for budget allocation (consider using scikit-learn or TensorFlow).\n3. Develop data preprocessing for historical performance data.\n4. Create features for CPA, conversion rates, and seasonality.\n5. Implement client-specific learning mechanisms.\n6. Develop constraint handling for minimum budget requirements.\n7. Create an API for the planning agent to receive inputs and return recommendations.\n8. Implement continuous learning mechanism to improve recommendations over time.\n9. Develop explainability features to understand allocation decisions.\n10. Create a fallback mechanism to previous allocation method in case of errors.",
+        "testStrategy": "1. Develop a test dataset with historical campaign data.\n2. Write unit tests for individual allocation functions.\n3. Implement integration tests for the complete allocation pipeline.\n4. Perform A/B testing against the previous fixed percentage system.\n5. Conduct user acceptance testing with sample client data.",
+        "priority": "high",
+        "dependencies": [
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Create Insights Agent",
+        "description": "Develop an Insights Agent to identify patterns, analyze trends, and generate actionable recommendations.",
+        "details": "1. Implement pattern recognition algorithms (consider using scikit-learn for anomaly detection).\n2. Develop trend analysis functions for time-series data.\n3. Create anomaly detection system for campaign performance.\n4. Implement a recommendation engine based on identified insights.\n5. Develop benchmarking system for cross-campaign comparison.\n6. Create natural language generation for insight descriptions.\n7. Implement prioritization logic for surfacing most important insights.\n8. Develop visualization capabilities for trend and pattern representation.\n9. Create an API for requesting and receiving insights.\n10. Implement caching mechanism for frequently requested insights.",
+        "testStrategy": "1. Create a diverse test dataset with known patterns and anomalies.\n2. Write unit tests for individual insight generation functions.\n3. Implement integration tests for the complete insights pipeline.\n4. Perform user studies to evaluate the relevance and actionability of insights.\n5. Conduct performance testing for large-scale data analysis.",
+        "priority": "medium",
+        "dependencies": [
+          5,
+          7
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Implement Meta Ads Integration",
+        "description": "Develop integration with Meta Ads API to fetch campaign data and performance metrics.",
+        "details": "1. Implement Meta Marketing API client (use Facebook Python SDK).\n2. Develop OAuth flow for Meta Ads account connection.\n3. Create data fetching logic for campaigns, ad sets, and ads.\n4. Implement performance metric retrieval (impressions, clicks, conversions, etc.).\n5. Develop cost data reconciliation with budget allocations.\n6. Create a Temporal workflow for regular data syncing.\n7. Implement error handling and retry logic for API failures.\n8. Develop data transformation to align with unified data model.\n9. Create logging and monitoring for Meta Ads operations.\n10. Implement rate limiting to respect Meta API quotas.",
+        "testStrategy": "1. Use Meta Marketing API test accounts for integration testing.\n2. Write unit tests for data fetching and transformation functions.\n3. Implement mock server for API testing.\n4. Perform end-to-end tests for the complete Meta Ads sync process.\n5. Conduct data accuracy verification with real campaign data.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Develop Google Ads Integration",
+        "description": "Implement integration with Google Ads API to import campaign structure and performance data.",
+        "details": "1. Set up Google Ads API client (use Google Ads Python client library).\n2. Implement OAuth flow for Google Ads account connection.\n3. Develop account structure retrieval (campaigns, ad groups, keywords).\n4. Implement performance data fetching (impressions, clicks, conversions, etc.).\n5. Create cost data reconciliation with budget allocations.\n6. Develop a Temporal workflow for regular data syncing.\n7. Implement error handling and retry logic for API failures.\n8. Create data transformation to align with unified data model.\n9. Set up logging and monitoring for Google Ads operations.\n10. Implement rate limiting to respect Google Ads API quotas.",
+        "testStrategy": "1. Use Google Ads API test accounts for integration testing.\n2. Write unit tests for data fetching and transformation functions.\n3. Implement mock server for API testing.\n4. Perform end-to-end tests for the complete Google Ads sync process.\n5. Conduct data accuracy verification with real campaign data.",
+        "priority": "medium",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Create Unified Data Model",
+        "description": "Develop a unified data model to standardize and aggregate data from multiple platforms.",
+        "details": "1. Design a flexible schema to accommodate various platform data.\n2. Implement cross-platform mapping for campaign structures.\n3. Develop metric standardization across platforms.\n4. Create aggregation logic for performance data.\n5. Implement historical data storage and retrieval.\n6. Develop data versioning for change tracking.\n7. Create data validation and sanitization processes.\n8. Implement efficient indexing for quick data access.\n9. Develop API for unified data access.\n10. Create documentation for the unified data model.",
+        "testStrategy": "1. Write unit tests for data mapping and aggregation functions.\n2. Implement integration tests with sample data from multiple platforms.\n3. Perform data consistency checks across platforms.\n4. Conduct performance testing for large dataset operations.\n5. Verify data integrity through end-to-end testing.",
+        "priority": "high",
+        "dependencies": [
+          9,
+          10
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Develop Real-Time Insights Dashboard",
+        "description": "Create a dashboard to display AI-generated insights and performance trends in real-time.",
+        "details": "1. Design responsive dashboard layout (use React and Tailwind CSS).\n2. Implement real-time data fetching (consider using WebSockets).\n3. Create visualizations for key metrics (use a library like Chart.js or D3.js).\n4. Develop components for displaying AI-generated insights.\n5. Implement filters and sorting for insights and metrics.\n6. Create a priority scoring system for insights.\n7. Develop user interaction tracking for insights.\n8. Implement performance optimizations for smooth updates.\n9. Create customizable dashboard layouts for users.\n10. Develop export functionality for insights and reports.",
+        "testStrategy": "1. Write unit tests for individual dashboard components.\n2. Implement integration tests for data flow and updates.\n3. Perform usability testing with sample user groups.\n4. Conduct performance testing for real-time updates.\n5. Verify cross-browser and device compatibility.",
+        "priority": "medium",
+        "dependencies": [
+          8,
+          11
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Implement Predictive Analytics",
+        "description": "Develop predictive analytics capabilities for trend forecasting and budget optimization.",
+        "details": "1. Implement time series forecasting models (consider using Prophet or ARIMA).\n2. Develop budget optimization algorithms using linear programming.\n3. Create performance prediction models for campaigns.\n4. Implement what-if scenario analysis capabilities.\n5. Develop feature engineering for predictive models.\n6. Create model training and evaluation pipelines.\n7. Implement model versioning and tracking.\n8. Develop API endpoints for predictive analytics results.\n9. Create visualizations for forecasts and predictions.\n10. Implement explanations for predictive results.",
+        "testStrategy": "1. Create test datasets with known trends and patterns.\n2. Write unit tests for individual predictive functions.\n3. Implement backtesting for forecasting accuracy.\n4. Perform A/B testing against baseline predictions.\n5. Conduct user acceptance testing for prediction explanations.",
+        "priority": "medium",
+        "dependencies": [
+          7,
+          11
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Develop Continuous Learning System",
+        "description": "Implement a system for continuous learning and improvement of AI models and recommendations.",
+        "details": "1. Design feedback collection mechanisms for user actions.\n2. Implement model retraining pipelines.\n3. Develop A/B testing framework for model improvements.\n4. Create performance tracking for model versions.\n5. Implement automated feature importance analysis.\n6. Develop incremental learning capabilities.\n7. Create anomaly detection for model drift.\n8. Implement multi-armed bandit algorithms for recommendation improvement.\n9. Develop logging and monitoring for the learning system.\n10. Create dashboards for tracking model improvements.",
+        "testStrategy": "1. Implement unit tests for individual learning components.\n2. Create integration tests for the complete learning pipeline.\n3. Perform simulations with synthetic feedback data.\n4. Conduct long-term performance evaluations.\n5. Verify model stability and improvement over time.",
+        "priority": "medium",
+        "dependencies": [
+          7,
+          8,
+          13
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Implement Feature Flag System",
+        "description": "Develop a feature flag system to control the rollout of new capabilities and ensure backward compatibility.",
+        "details": "1. Choose a feature flag management library (e.g., LaunchDarkly, Optimizely).\n2. Implement server-side feature flags in FastAPI.\n3. Develop client-side feature flag integration in React.\n4. Create a management interface for feature flags.\n5. Implement user segmentation for targeted rollouts.\n6. Develop analytics for feature usage and performance.\n7. Create automated tests for feature flag scenarios.\n8. Implement feature flag synchronization across services.\n9. Develop rollback mechanisms for problematic features.\n10. Create documentation for feature flag usage and best practices.",
+        "testStrategy": "1. Write unit tests for feature flag logic.\n2. Implement integration tests for flag synchronization.\n3. Perform end-to-end tests with various flag configurations.\n4. Conduct load testing to ensure minimal performance impact.\n5. Verify proper function of rollback mechanisms.",
+        "priority": "medium",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 16,
+        "title": "Enhance Error Handling and Logging",
+        "description": "Improve error handling across the system and implement comprehensive logging for debugging and monitoring.",
+        "details": "1. Implement structured logging using a library like structlog.\n2. Develop centralized error handling for FastAPI.\n3. Create custom exception classes for specific error scenarios.\n4. Implement log aggregation (consider using ELK stack or Datadog).\n5. Develop log rotation and retention policies.\n6. Create alerting mechanisms for critical errors.\n7. Implement context preservation in logs across services.\n8. Develop a user-friendly error reporting interface.\n9. Create documentation for error codes and troubleshooting.\n10. Implement performance logging for key operations.",
+        "testStrategy": "1. Write unit tests for error handling functions.\n2. Implement integration tests for logging across services.\n3. Perform chaos testing to verify error handling in various scenarios.\n4. Conduct log analysis to ensure all necessary information is captured.\n5. Verify alerting mechanisms through simulated error conditions.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Implement Performance Optimization",
+        "description": "Optimize the performance of the entire system to ensure fast response times and efficient resource usage.",
+        "details": "1. Implement caching mechanisms (consider using Redis).\n2. Optimize database queries and indexing.\n3. Implement database connection pooling.\n4. Develop asynchronous processing for long-running tasks.\n5. Implement pagination for large data sets.\n6. Optimize front-end bundle size and loading.\n7. Implement lazy loading for components and data.\n8. Develop performance monitoring and profiling tools.\n9. Optimize image and asset delivery (consider using a CDN).\n10. Implement horizontal scaling for key services.",
+        "testStrategy": "1. Conduct load testing using tools like Locust or JMeter.\n2. Perform profiling to identify performance bottlenecks.\n3. Implement benchmark tests for key operations.\n4. Conduct A/B testing for performance optimizations.\n5. Verify performance improvements through continuous monitoring.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          5,
+          11
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "Enhance Security Measures",
+        "description": "Implement additional security measures to protect user data and prevent unauthorized access.",
+        "details": "1. Implement API rate limiting and throttling.\n2. Enhance authentication with multi-factor authentication.\n3. Implement JWT token refresh mechanism.\n4. Conduct security audit of data storage and transmission.\n5. Implement input validation and sanitization across all inputs.\n6. Develop a security headers configuration.\n7. Implement CSRF protection.\n8. Enhance encryption for sensitive data at rest.\n9. Develop an audit log for security-related events.\n10. Implement regular security scanning and penetration testing.",
+        "testStrategy": "1. Conduct penetration testing using tools like OWASP ZAP.\n2. Perform security code reviews.\n3. Implement unit tests for security-related functions.\n4. Conduct simulated attack scenarios.\n5. Verify compliance with security best practices and standards.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Develop Comprehensive Testing Suite",
+        "description": "Create a comprehensive testing suite covering unit, integration, and end-to-end tests for the entire system.",
+        "details": "1. Set up testing frameworks (pytest for backend, Jest for frontend).\n2. Implement unit tests for all core functions.\n3. Develop integration tests for service interactions.\n4. Create end-to-end tests using a tool like Cypress.\n5. Implement property-based testing for complex logic.\n6. Develop performance tests for critical paths.\n7. Create visual regression tests for UI components.\n8. Implement contract tests for API endpoints.\n9. Develop chaos tests for resilience verification.\n10. Create a CI/CD pipeline for automated testing.",
+        "testStrategy": "1. Aim for high test coverage (>80%) for critical components.\n2. Implement test-driven development (TDD) for new features.\n3. Conduct regular code reviews with a focus on test quality.\n4. Perform mutation testing to verify test effectiveness.\n5. Implement continuous testing in the development workflow.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "Create Comprehensive Documentation",
+        "description": "Develop thorough documentation for the entire system, including API references, architecture overviews, and user guides.",
+        "details": "1. Set up a documentation system (consider using Sphinx or Docusaurus).\n2. Create API documentation using OpenAPI/Swagger.\n3. Develop architecture diagrams and explanations.\n4. Write user guides for different user roles.\n5. Create developer onboarding documentation.\n6. Implement inline code documentation.\n7. Develop troubleshooting guides and FAQs.\n8. Create release notes and changelog.\n9. Implement a version control system for documentation.\n10. Develop a process for keeping documentation up-to-date.",
+        "testStrategy": "1. Implement documentation tests to ensure accuracy.\n2. Conduct user testing for documentation clarity.\n3. Perform regular reviews of documentation for completeness.\n4. Implement automated checks for documentation coverage.\n5. Gather and incorporate user feedback on documentation.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-06-17T17:13:25.854Z",
+      "updated": "2025-06-17T17:13:25.854Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

@@ -1,0 +1,313 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Google Integrations & OAuth
+
+This project integrates with multiple Google services (Ads, Drive, Analytics) using OAuth 2.0 flows and requires consistent authentication and API access patterns.
+
+## **OAuth 2.0 Flow Implementation**
+
+**✅ DO: Use standard OAuth 2.0 Authorization Code flow**
+```python
+from authlib.integrations.fastapi import OAuth2AuthorizationCodeBearer
+from authlib.integrations.httpx import OAuth2Client
+
+class GoogleOAuthService:
+    def __init__(self):
+        self.client_id = settings.google_client_id
+        self.client_secret = settings.google_client_secret
+        self.redirect_uri = f"{settings.base_url}/oauth/google/callback"
+        
+    def get_authorization_url(self, tenant_id: str, scopes: List[str]) -> str:
+        state = self._generate_state(tenant_id)
+        
+        oauth_client = OAuth2Client(
+            client_id=self.client_id,
+            redirect_uri=self.redirect_uri
+        )
+        
+        auth_url = oauth_client.create_authorization_url(
+            "https://accounts.google.com/o/oauth2/auth",
+            scope=" ".join(scopes),
+            state=state,
+            access_type="offline",  # For refresh tokens
+            prompt="consent"        # Force consent screen
+        )
+        
+        return auth_url
+```
+
+## **Required OAuth Scopes by Service**
+
+```python
+GOOGLE_SCOPES = {
+    "ads": [
+        "https://www.googleapis.com/auth/adwords",
+        "https://www.googleapis.com/auth/adwords.readonly"
+    ],
+    "drive": [
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.readonly"
+    ],
+    "analytics": [
+        "https://www.googleapis.com/auth/analytics.readonly"
+    ],
+    "sheets": [
+        "https://www.googleapis.com/auth/spreadsheets"
+    ]
+}
+```
+
+## **Token Storage and Management**
+
+**✅ DO: Store tokens securely with tenant isolation**
+```python
+from sqlalchemy import Column, String, DateTime, Text, Boolean
+from cryptography.fernet import Fernet
+
+class GoogleOAuthToken(Base):
+    __tablename__ = "google_oauth_tokens"
+    
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False, index=True)
+    service_type = Column(String, nullable=False)  # 'ads', 'drive', etc.
+    
+    # Encrypted token data
+    access_token_encrypted = Column(Text, nullable=False)
+    refresh_token_encrypted = Column(Text)
+    
+    expires_at = Column(DateTime)
+    scopes = Column(Text)  # JSON array of scopes
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = Column(Boolean, default=True)
+
+    def encrypt_token(self, token: str) -> str:
+        cipher = Fernet(settings.encryption_key)
+        return cipher.encrypt(token.encode()).decode()
+    
+    def decrypt_token(self, encrypted_token: str) -> str:
+        cipher = Fernet(settings.encryption_key)
+        return cipher.decrypt(encrypted_token.encode()).decode()
+```
+
+## **Token Refresh Automation**
+
+**✅ DO: Implement automatic token refresh**
+```python
+async def refresh_google_token(tenant_id: str, service_type: str) -> dict:
+    """Refresh Google OAuth token if needed"""
+    token_record = await get_google_token(tenant_id, service_type)
+    
+    if not token_record or not token_record.refresh_token_encrypted:
+        raise HTTPException(
+            status_code=401, 
+            detail="No refresh token available. Re-authorization required."
+        )
+    
+    # Check if token needs refresh (expire within 5 minutes)
+    if token_record.expires_at > datetime.utcnow() + timedelta(minutes=5):
+        return {
+            "access_token": token_record.decrypt_token(token_record.access_token_encrypted),
+            "expires_at": token_record.expires_at
+        }
+    
+    # Refresh the token
+    oauth_client = OAuth2Client(
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret
+    )
+    
+    refresh_token = token_record.decrypt_token(token_record.refresh_token_encrypted)
+    
+    try:
+        new_token = await oauth_client.refresh_token(
+            "https://oauth2.googleapis.com/token",
+            refresh_token=refresh_token
+        )
+        
+        # Update stored token
+        await update_google_token(tenant_id, service_type, new_token)
+        
+        return new_token
+        
+    except Exception as e:
+        # Token refresh failed - user needs to re-authorize
+        await deactivate_google_token(tenant_id, service_type)
+        raise HTTPException(
+            status_code=401,
+            detail="Token refresh failed. Re-authorization required."
+        )
+```
+
+## **Google API Client Patterns**
+
+**✅ DO: Use service-specific client wrappers**
+```python
+from google.ads.googleads.client import GoogleAdsClient
+from googleapiclient.discovery import build
+
+class GoogleAdsService:
+    def __init__(self, tenant_id: str):
+        self.tenant_id = tenant_id
+        self._client = None
+    
+    async def get_client(self) -> GoogleAdsClient:
+        if not self._client:
+            token_data = await refresh_google_token(self.tenant_id, "ads")
+            
+            self._client = GoogleAdsClient.load_from_dict({
+                "developer_token": settings.google_ads_developer_token,
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "refresh_token": token_data["refresh_token"],
+                "use_proto_plus": True
+            })
+        
+        return self._client
+    
+    async def get_campaigns(self, customer_id: str) -> List[dict]:
+        client = await self.get_client()
+        ga_service = client.get_service("GoogleAdsService")
+        
+        query = """
+            SELECT 
+                campaign.id,
+                campaign.name,
+                campaign.status,
+                campaign.budget.amount_micros
+            FROM campaign
+            WHERE campaign.status != 'REMOVED'
+        """
+        
+        response = ga_service.search(customer_id=customer_id, query=query)
+        
+        campaigns = []
+        for row in response:
+            campaigns.append({
+                "id": row.campaign.id,
+                "name": row.campaign.name,
+                "status": row.campaign.status.name,
+                "budget_micros": row.campaign.budget.amount_micros
+            })
+        
+        return campaigns
+```
+
+## **Error Handling for Google APIs**
+
+**✅ DO: Handle Google API-specific errors**
+```python
+from google.ads.googleads.errors import GoogleAdsException
+from googleapiclient.errors import HttpError
+
+async def handle_google_api_error(error: Exception, tenant_id: str, service: str):
+    """Centralized Google API error handling"""
+    
+    if isinstance(error, GoogleAdsException):
+        # Handle Google Ads specific errors
+        for google_ads_error in error.failure.errors:
+            if google_ads_error.error_code.authentication_error:
+                # Token expired or invalid
+                await deactivate_google_token(tenant_id, "ads")
+                raise HTTPException(
+                    status_code=401,
+                    detail="Google Ads authentication expired. Please re-authorize."
+                )
+    
+    elif isinstance(error, HttpError):
+        if error.resp.status == 401:
+            # OAuth token expired
+            await deactivate_google_token(tenant_id, service)
+            raise HTTPException(
+                status_code=401,
+                detail=f"Google {service} authentication expired. Please re-authorize."
+            )
+        elif error.resp.status == 403:
+            # Permission denied
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions for Google {service}."
+            )
+    
+    # Generic error handling
+    raise HTTPException(
+        status_code=500,
+        detail=f"Google {service} API error: {str(error)}"
+    )
+```
+
+## **OAuth Callback Handling**
+
+**✅ DO: Implement secure callback processing**
+```python
+@router.get("/oauth/google/callback")
+async def google_oauth_callback(
+    code: str,
+    state: str,
+    error: str = None,
+    db: Session = Depends(get_db)
+):
+    if error:
+        raise HTTPException(
+            status_code=400,
+            detail=f"OAuth error: {error}"
+        )
+    
+    # Validate state parameter
+    tenant_id, service_type = validate_oauth_state(state)
+    
+    # Exchange code for tokens
+    oauth_client = OAuth2Client(
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret
+    )
+    
+    try:
+        token_data = await oauth_client.fetch_token(
+            "https://oauth2.googleapis.com/token",
+            authorization_response=request.url,
+            redirect_uri=f"{settings.base_url}/oauth/google/callback"
+        )
+        
+        # Store encrypted tokens
+        await store_google_token(tenant_id, service_type, token_data)
+        
+        return {"status": "success", "message": "Authorization successful"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Token exchange failed: {str(e)}"
+        )
+```
+
+## **Temporal Integration for OAuth**
+
+**✅ DO: Use Temporal workflows for OAuth token management**
+```python
+@workflow.defn
+class GoogleTokenRefreshWorkflow:
+    @workflow.run
+    async def run(self, tenant_id: str, service_type: str) -> None:
+        # Schedule periodic token refresh
+        while True:
+            await workflow.execute_activity(
+                refresh_google_token_activity,
+                args=[tenant_id, service_type],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3)
+            )
+            
+            # Check every hour
+            await workflow.sleep(timedelta(hours=1))
+```
+
+**❌ DON'T: Store unencrypted tokens**
+**❌ DON'T: Skip token expiration checks**
+**❌ DON'T: Mix service types in single token record**
+**❌ DON'T: Ignore OAuth state validation**
+**❌ DON'T: Hard-code redirect URIs**

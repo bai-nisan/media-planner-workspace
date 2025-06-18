@@ -1,0 +1,586 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Multi-Agent System Guidelines
+
+This rule defines patterns for implementing LangGraph-based multi-agent systems in the Media Planning Platform, ensuring coherent, scalable, and intelligent agent coordination.
+
+## **Agent Architecture Overview**
+
+- **Follow the three-agent pattern from system architecture**
+  - **Workspace Agent**: File discovery, organization, and data extraction
+  - **Planning Agent**: Strategic analysis and media planning optimization
+  - **Insights Agent**: Market analysis and performance insights
+  - Reference: [docs/media-planner-architecture.md](mdc:docs/media-planner-architecture.md)
+
+## **Agent Base Class Pattern**
+
+- **Implement consistent agent interface**
+  - All agents should inherit from a common base class
+  - Standardize input/output formats
+  - Enable agent composition and coordination
+
+```python
+# ✅ DO: Base agent pattern
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List
+from pydantic import BaseModel
+from langchain_core.messages import BaseMessage
+from langgraph.graph import StateGraph
+
+class AgentInput(BaseModel):
+    """Standard input for all agents."""
+    data: Dict[str, Any]
+    tenant_id: str
+    context: Optional[Dict[str, Any]] = None
+    previous_results: Optional[List[Dict[str, Any]]] = None
+
+class AgentResult(BaseModel):
+    """Standard output for all agents."""
+    agent_type: str
+    status: str
+    data: Dict[str, Any]
+    confidence_score: float
+    recommendations: List[str]
+    metadata: Dict[str, Any] = {}
+    error_message: Optional[str] = None
+
+class BaseAgent(ABC):
+    """Base class for all media planning agents."""
+    
+    def __init__(self, model_name: str = "gpt-4o"):
+        self.model_name = model_name
+        self.graph: StateGraph = self._build_graph()
+    
+    @abstractmethod
+    def _build_graph(self) -> StateGraph:
+        """Build the LangGraph state graph for this agent."""
+        pass
+    
+    @abstractmethod
+    async def process(self, input_data: AgentInput) -> AgentResult:
+        """Process input and return agent result."""
+        pass
+    
+    def _create_system_message(self) -> str:
+        """Create agent-specific system message."""
+        return f"You are a {self.__class__.__name__} for media planning."
+```
+
+## **Workspace Agent Implementation**
+
+- **Focus on file discovery and data extraction**
+  - Integrate with Google APIs for file access
+  - Extract structured data from unstructured sources
+  - Organize campaign assets and metadata
+
+```python
+# ✅ DO: Workspace Agent pattern
+from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from app.services.google import GoogleDriveClient, GoogleSheetsClient
+
+class WorkspaceAgentState(BaseModel):
+    """State for workspace agent graph."""
+    files: List[Dict[str, Any]] = []
+    extracted_data: Dict[str, Any] = {}
+    organized_assets: Dict[str, List[str]] = {}
+    current_step: str = "discover"
+    error_count: int = 0
+
+class WorkspaceAgent(BaseAgent):
+    """Agent for workspace synchronization and data extraction."""
+    
+    def _build_graph(self) -> StateGraph:
+        graph = StateGraph(WorkspaceAgentState)
+        
+        # Define nodes
+        graph.add_node("discover_files", self._discover_files)
+        graph.add_node("extract_data", self._extract_data)
+        graph.add_node("organize_assets", self._organize_assets)
+        graph.add_node("validate_results", self._validate_results)
+        
+        # Define edges
+        graph.add_edge("discover_files", "extract_data")
+        graph.add_edge("extract_data", "organize_assets")
+        graph.add_edge("organize_assets", "validate_results")
+        graph.add_edge("validate_results", END)
+        
+        # Set entry point
+        graph.set_entry_point("discover_files")
+        
+        return graph.compile()
+    
+    async def _discover_files(self, state: WorkspaceAgentState) -> WorkspaceAgentState:
+        """Discover campaign files in workspace."""
+        try:
+            # Use Google Drive client to find files
+            with GoogleDriveClient(auth_manager, settings) as drive_client:
+                files = drive_client.find_campaign_files(
+                    campaign_keywords=["campaign", "media", "ads"],
+                    file_types=["spreadsheet", "document", "presentation"]
+                )
+                
+                state.files = [file.dict() for file in files]
+                state.current_step = "extract"
+                
+        except Exception as e:
+            state.error_count += 1
+            logger.error(f"File discovery failed: {e}")
+            
+        return state
+    
+    async def _extract_data(self, state: WorkspaceAgentState) -> WorkspaceAgentState:
+        """Extract structured data from discovered files."""
+        llm = ChatOpenAI(model=self.model_name, temperature=0)
+        
+        extracted_data = {}
+        
+        for file_info in state.files:
+            if file_info["mime_type"] == "application/vnd.google-apps.spreadsheet":
+                # Extract data from Google Sheets
+                with GoogleSheetsClient(auth_manager, settings) as sheets_client:
+                    sheet_data = sheets_client.read_all_data(file_info["id"])
+                    
+                    # Use LLM to understand the data structure
+                    prompt = f"""
+                    Analyze this spreadsheet data and extract key campaign information:
+                    
+                    Data: {sheet_data}
+                    
+                    Return structured JSON with:
+                    - campaign_name
+                    - budget_info
+                    - target_audience
+                    - key_metrics
+                    - time_period
+                    """
+                    
+                    response = await llm.ainvoke(prompt)
+                    extracted_data[file_info["name"]] = response.content
+        
+        state.extracted_data = extracted_data
+        state.current_step = "organize"
+        return state
+    
+    async def process(self, input_data: AgentInput) -> AgentResult:
+        """Process workspace synchronization."""
+        try:
+            initial_state = WorkspaceAgentState()
+            result = await self.graph.ainvoke(initial_state)
+            
+            return AgentResult(
+                agent_type="workspace",
+                status="success" if result.error_count == 0 else "partial",
+                data={
+                    "files": result.files,
+                    "extracted_data": result.extracted_data,
+                    "organized_assets": result.organized_assets
+                },
+                confidence_score=max(0.1, 1.0 - (result.error_count * 0.2)),
+                recommendations=self._generate_recommendations(result)
+            )
+            
+        except Exception as e:
+            return AgentResult(
+                agent_type="workspace",
+                status="failed",
+                data={},
+                confidence_score=0.0,
+                recommendations=[],
+                error_message=str(e)
+            )
+```
+
+## **Planning Agent Implementation**
+
+- **Focus on strategic planning and optimization**
+  - Analyze historical campaign data
+  - Generate media mix recommendations
+  - Optimize budget allocation strategies
+
+```python
+# ✅ DO: Planning Agent pattern
+class PlanningAgentState(BaseModel):
+    """State for planning agent graph."""
+    historical_data: Dict[str, Any] = {}
+    market_analysis: Dict[str, Any] = {}
+    recommendations: List[Dict[str, Any]] = []
+    optimization_results: Dict[str, Any] = {}
+    current_step: str = "analyze"
+
+class PlanningAgent(BaseAgent):
+    """Agent for strategic media planning and optimization."""
+    
+    def _build_graph(self) -> StateGraph:
+        graph = StateGraph(PlanningAgentState)
+        
+        # Define nodes
+        graph.add_node("analyze_historical", self._analyze_historical)
+        graph.add_node("market_research", self._market_research)
+        graph.add_node("generate_strategy", self._generate_strategy)
+        graph.add_node("optimize_budget", self._optimize_budget)
+        graph.add_node("validate_plan", self._validate_plan)
+        
+        # Define conditional routing
+        def should_optimize(state: PlanningAgentState) -> str:
+            if state.recommendations:
+                return "optimize_budget"
+            return "validate_plan"
+        
+        # Define edges
+        graph.add_edge("analyze_historical", "market_research")
+        graph.add_edge("market_research", "generate_strategy")
+        graph.add_conditional_edges(
+            "generate_strategy",
+            should_optimize,
+            {
+                "optimize_budget": "optimize_budget",
+                "validate_plan": "validate_plan"
+            }
+        )
+        graph.add_edge("optimize_budget", "validate_plan")
+        graph.add_edge("validate_plan", END)
+        
+        graph.set_entry_point("analyze_historical")
+        return graph.compile()
+    
+    async def _analyze_historical(self, state: PlanningAgentState) -> PlanningAgentState:
+        """Analyze historical campaign performance."""
+        llm = ChatOpenAI(model=self.model_name, temperature=0.1)
+        
+        # Use LLM to analyze patterns in historical data
+        prompt = f"""
+        Analyze this historical campaign data for patterns and insights:
+        
+        Data: {state.historical_data}
+        
+        Identify:
+        1. Top performing channels and tactics
+        2. Seasonal trends and patterns
+        3. Budget efficiency metrics
+        4. Audience engagement patterns
+        5. Areas for improvement
+        
+        Return structured analysis with confidence scores.
+        """
+        
+        response = await llm.ainvoke(prompt)
+        state.historical_data["analysis"] = response.content
+        state.current_step = "research"
+        
+        return state
+    
+    async def _generate_strategy(self, state: PlanningAgentState) -> PlanningAgentState:
+        """Generate strategic recommendations."""
+        llm = ChatOpenAI(model=self.model_name, temperature=0.2)
+        
+        strategy_prompt = f"""
+        Based on historical analysis and market research, generate strategic recommendations:
+        
+        Historical Analysis: {state.historical_data.get('analysis', '')}
+        Market Research: {state.market_analysis}
+        
+        Generate specific, actionable recommendations for:
+        1. Channel mix optimization
+        2. Budget allocation strategy
+        3. Target audience refinement
+        4. Creative direction suggestions
+        5. Timeline and pacing recommendations
+        
+        Each recommendation should include:
+        - Specific action
+        - Expected impact
+        - Confidence level
+        - Implementation priority
+        """
+        
+        response = await llm.ainvoke(strategy_prompt)
+        state.recommendations = self._parse_recommendations(response.content)
+        state.current_step = "optimize"
+        
+        return state
+```
+
+## **Insights Agent Implementation**
+
+- **Focus on market analysis and performance insights**
+  - Monitor market trends and competitor analysis
+  - Generate actionable insights from data
+  - Provide real-time performance recommendations
+
+```python
+# ✅ DO: Insights Agent pattern
+class InsightsAgentState(BaseModel):
+    """State for insights agent graph."""
+    market_data: Dict[str, Any] = {}
+    trend_analysis: Dict[str, Any] = {}
+    insights: List[Dict[str, Any]] = []
+    recommendations: List[str] = []
+    current_step: str = "collect"
+
+class InsightsAgent(BaseAgent):
+    """Agent for market insights and performance analysis."""
+    
+    def _build_graph(self) -> StateGraph:
+        graph = StateGraph(InsightsAgentState)
+        
+        # Define nodes with retry capability
+        graph.add_node("collect_market_data", self._collect_market_data)
+        graph.add_node("analyze_trends", self._analyze_trends)
+        graph.add_node("generate_insights", self._generate_insights)
+        graph.add_node("benchmark_performance", self._benchmark_performance)
+        graph.add_node("synthesize_results", self._synthesize_results)
+        
+        # Define edges with error handling
+        graph.add_edge("collect_market_data", "analyze_trends")
+        graph.add_edge("analyze_trends", "generate_insights")
+        graph.add_edge("generate_insights", "benchmark_performance")
+        graph.add_edge("benchmark_performance", "synthesize_results")
+        graph.add_edge("synthesize_results", END)
+        
+        graph.set_entry_point("collect_market_data")
+        return graph.compile()
+    
+    async def _collect_market_data(self, state: InsightsAgentState) -> InsightsAgentState:
+        """Collect and process market data."""
+        try:
+            # Use research capabilities to gather fresh market data
+            from app.services.research import ResearchService
+            
+            research_service = ResearchService()
+            
+            # Gather market trends
+            market_trends = await research_service.query(
+                "Latest digital advertising trends and market insights",
+                include_recent=True
+            )
+            
+            # Gather competitor analysis
+            competitor_data = await research_service.query(
+                "Competitor advertising strategies and market positioning",
+                include_recent=True
+            )
+            
+            state.market_data = {
+                "trends": market_trends,
+                "competitors": competitor_data,
+                "collected_at": datetime.now().isoformat()
+            }
+            state.current_step = "analyze"
+            
+        except Exception as e:
+            logger.error(f"Market data collection failed: {e}")
+            state.market_data = {"error": str(e)}
+            
+        return state
+```
+
+## **Agent Coordination Patterns**
+
+- **Implement agent orchestration and communication**
+  - Use shared state for agent coordination
+  - Handle agent failures gracefully
+  - Enable dynamic agent routing
+
+```python
+# ✅ DO: Agent orchestration pattern
+class MultiAgentCoordinator:
+    """Coordinates multiple agents for complex media planning tasks."""
+    
+    def __init__(self):
+        self.workspace_agent = WorkspaceAgent()
+        self.planning_agent = PlanningAgent()
+        self.insights_agent = InsightsAgent()
+    
+    async def run_parallel_analysis(
+        self, 
+        input_data: AgentInput
+    ) -> Dict[str, AgentResult]:
+        """Run multiple agents in parallel."""
+        
+        # Execute agents concurrently
+        tasks = {
+            "workspace": self.workspace_agent.process(input_data),
+            "planning": self.planning_agent.process(input_data),
+            "insights": self.insights_agent.process(input_data)
+        }
+        
+        results = {}
+        for agent_name, task in tasks.items():
+            try:
+                results[agent_name] = await task
+            except Exception as e:
+                logger.error(f"Agent {agent_name} failed: {e}")
+                results[agent_name] = AgentResult(
+                    agent_type=agent_name,
+                    status="failed",
+                    data={},
+                    confidence_score=0.0,
+                    recommendations=[],
+                    error_message=str(e)
+                )
+        
+        return results
+    
+    async def run_sequential_analysis(
+        self, 
+        input_data: AgentInput
+    ) -> AgentResult:
+        """Run agents sequentially, passing results between them."""
+        
+        # Stage 1: Workspace discovery
+        workspace_result = await self.workspace_agent.process(input_data)
+        
+        # Stage 2: Planning with workspace context
+        planning_input = AgentInput(
+            data=input_data.data,
+            tenant_id=input_data.tenant_id,
+            context=input_data.context,
+            previous_results=[workspace_result.dict()]
+        )
+        planning_result = await self.planning_agent.process(planning_input)
+        
+        # Stage 3: Insights with full context
+        insights_input = AgentInput(
+            data=input_data.data,
+            tenant_id=input_data.tenant_id,
+            context=input_data.context,
+            previous_results=[workspace_result.dict(), planning_result.dict()]
+        )
+        insights_result = await self.insights_agent.process(insights_input)
+        
+        # Synthesize final result
+        return self._synthesize_results([
+            workspace_result,
+            planning_result,
+            insights_result
+        ])
+```
+
+## **Agent Testing Patterns**
+
+- **Implement comprehensive agent testing**
+  - Mock external dependencies
+  - Test agent state transitions
+  - Verify agent coordination
+
+```python
+# ✅ DO: Agent testing pattern
+import pytest
+from unittest.mock import Mock, patch
+
+@pytest.mark.asyncio
+async def test_workspace_agent_discovery():
+    """Test workspace agent file discovery functionality."""
+    
+    # Mock Google Drive client
+    mock_drive_client = Mock()
+    mock_drive_client.find_campaign_files.return_value = [
+        Mock(dict=lambda: {"id": "1", "name": "Campaign Plan", "mime_type": "spreadsheet"})
+    ]
+    
+    with patch('app.agents.workspace_agent.GoogleDriveClient') as mock_client:
+        mock_client.return_value.__enter__.return_value = mock_drive_client
+        
+        agent = WorkspaceAgent()
+        input_data = AgentInput(
+            data={"workspace_id": "test"},
+            tenant_id="test-tenant"
+        )
+        
+        result = await agent.process(input_data)
+        
+        assert result.status == "success"
+        assert result.agent_type == "workspace"
+        assert len(result.data["files"]) == 1
+        assert result.confidence_score > 0.5
+
+@pytest.mark.asyncio
+async def test_multi_agent_coordination():
+    """Test multi-agent coordination patterns."""
+    
+    coordinator = MultiAgentCoordinator()
+    
+    input_data = AgentInput(
+        data={"campaign_id": "test-campaign"},
+        tenant_id="test-tenant"
+    )
+    
+    # Test parallel execution
+    results = await coordinator.run_parallel_analysis(input_data)
+    
+    assert "workspace" in results
+    assert "planning" in results
+    assert "insights" in results
+    
+    # Verify all agents completed
+    for agent_name, result in results.items():
+        assert isinstance(result, AgentResult)
+        assert result.agent_type == agent_name
+```
+
+## **Error Handling and Resilience**
+
+- **Implement robust error handling for agent operations**
+  - Handle LLM failures gracefully
+  - Implement circuit breaker patterns
+  - Provide fallback mechanisms
+
+```python
+# ✅ DO: Agent error handling pattern
+class AgentErrorHandler:
+    """Centralized error handling for agent operations."""
+    
+    @staticmethod
+    def handle_llm_error(error: Exception, agent_type: str) -> AgentResult:
+        """Handle LLM-related errors."""
+        logger.error(f"LLM error in {agent_type}: {error}")
+        
+        return AgentResult(
+            agent_type=agent_type,
+            status="failed",
+            data={"error_type": "llm_failure"},
+            confidence_score=0.0,
+            recommendations=["Retry with different model or parameters"],
+            error_message=str(error)
+        )
+    
+    @staticmethod
+    def handle_api_error(error: Exception, agent_type: str) -> AgentResult:
+        """Handle external API errors."""
+        logger.error(f"API error in {agent_type}: {error}")
+        
+        return AgentResult(
+            agent_type=agent_type,
+            status="failed",
+            data={"error_type": "api_failure"},
+            confidence_score=0.0,
+            recommendations=["Check API credentials and connectivity"],
+            error_message=str(error)
+        )
+
+# Use in agent implementations
+async def process_with_error_handling(self, input_data: AgentInput) -> AgentResult:
+    """Process with comprehensive error handling."""
+    try:
+        return await self.process(input_data)
+    except LLMError as e:
+        return AgentErrorHandler.handle_llm_error(e, self.__class__.__name__)
+    except APIError as e:
+        return AgentErrorHandler.handle_api_error(e, self.__class__.__name__)
+    except Exception as e:
+        logger.error(f"Unexpected error in {self.__class__.__name__}: {e}")
+        return AgentResult(
+            agent_type=self.__class__.__name__.lower(),
+            status="failed",
+            data={},
+            confidence_score=0.0,
+            recommendations=[],
+            error_message=f"Unexpected error: {str(e)}"
+        )
+```
+
+This rule ensures consistent, reliable, and intelligent multi-agent system implementation for the Media Planning Platform's AI-powered planning capabilities.

@@ -1,0 +1,225 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# FastAPI Backend Architecture
+
+This project implements a robust FastAPI backend for the media planning platform with multi-tenant support and comprehensive API patterns.
+
+## **Project Structure Standards**
+
+```
+media-planner-infra/app/
+├── api/              # API routes and endpoints
+├── core/             # Core configuration and utilities
+├── models/           # Database models and schemas
+├── services/         # Business logic services
+├── temporal/         # Temporal workflow integration
+└── main.py           # FastAPI application entry point
+```
+
+## **API Router Organization**
+
+**✅ DO: Organize routes by domain**
+```python
+# api/v1/campaigns.py
+from fastapi import APIRouter, Depends
+from ..auth import get_current_tenant
+
+router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
+@router.get("/")
+async def list_campaigns(
+    tenant_id: str = Depends(get_current_tenant)
+):
+    # Always include tenant isolation
+    pass
+```
+
+**✅ DO: Use consistent response models**
+```python
+from pydantic import BaseModel
+from typing import List, Optional
+
+class CampaignResponse(BaseModel):
+    id: str
+    name: str
+    tenant_id: str
+    status: str
+    created_at: datetime
+    
+class CampaignListResponse(BaseModel):
+    campaigns: List[CampaignResponse]
+    total: int
+    page: int
+    limit: int
+```
+
+## **Multi-Tenant Architecture**
+
+**✅ DO: Implement tenant isolation at API level**
+```python
+async def get_current_tenant(
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+) -> str:
+    # Extract and validate tenant from JWT/API key
+    tenant_id = extract_tenant_from_token(authorization)
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="Invalid tenant")
+    return tenant_id
+```
+
+**✅ DO: Filter all database queries by tenant**
+```python
+async def get_campaigns(tenant_id: str, db: Session):
+    return db.query(Campaign).filter(
+        Campaign.tenant_id == tenant_id,
+        Campaign.deleted_at.is_(None)
+    ).all()
+```
+
+## **Authentication & Authorization**
+
+**✅ DO: Implement OAuth2 flows for Google services**
+```python
+from authlib.integrations.fastapi import OAuth2AuthorizationCodeBearer
+
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl="https://accounts.google.com/o/oauth2/auth",
+    tokenUrl="https://oauth2.googleapis.com/token"
+)
+
+@router.get("/oauth/google")
+async def google_oauth_callback(
+    code: str,
+    state: str,
+    tenant_id: str = Depends(get_current_tenant)
+):
+    # Handle OAuth callback and store tokens
+    pass
+```
+
+## **Error Handling Patterns**
+
+**✅ DO: Use structured error responses**
+```python
+from fastapi import HTTPException
+from pydantic import BaseModel
+
+class ErrorResponse(BaseModel):
+    error: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+async def handle_temporal_error(error: Exception):
+    if isinstance(error, WorkflowFailedError):
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(
+                error="workflow_failed",
+                message=str(error),
+                details={"workflow_id": error.workflow_id}
+            ).dict()
+        )
+```
+
+## **Database Integration**
+
+**✅ DO: Use dependency injection for database sessions**
+```python
+from sqlalchemy.orm import Session
+from .database import SessionLocal
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@router.post("/campaigns")
+async def create_campaign(
+    campaign: CampaignCreate,
+    db: Session = Depends(get_db),
+    tenant_id: str = Depends(get_current_tenant)
+):
+    # Use db session with automatic cleanup
+    pass
+```
+
+## **Temporal Workflow Integration**
+
+**✅ DO: Use consistent workflow client patterns**
+```python
+from temporalio.client import Client as TemporalClient
+
+async def start_sync_workflow(
+    tenant_id: str,
+    config: SyncConfig
+) -> str:
+    client = await TemporalClient.connect("localhost:7233")
+    
+    workflow_id = f"sync-{tenant_id}-{uuid.uuid4()}"
+    
+    handle = await client.start_workflow(
+        "ScheduledSyncWorkflow",
+        args=[tenant_id, config],
+        id=workflow_id,
+        task_queue="media-planner-sync"
+    )
+    
+    return workflow_id
+```
+
+## **Validation and Serialization**
+
+**✅ DO: Use Pydantic models for all API inputs/outputs**
+```python
+from pydantic import BaseModel, validator
+from datetime import datetime
+from typing import Optional
+
+class CampaignCreate(BaseModel):
+    name: str
+    budget: float
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    
+    @validator('budget')
+    def budget_must_be_positive(cls, v):
+        if v <= 0:
+            raise ValueError('Budget must be positive')
+        return v
+    
+    @validator('end_date')
+    def end_date_after_start(cls, v, values):
+        if v and 'start_date' in values and v <= values['start_date']:
+            raise ValueError('End date must be after start date')
+        return v
+```
+
+## **Configuration Management**
+
+**✅ DO: Use environment-based configuration**
+```python
+from pydantic import BaseSettings
+
+class Settings(BaseSettings):
+    database_url: str
+    temporal_host: str = "localhost:7233"
+    google_client_id: str
+    google_client_secret: str
+    jwt_secret_key: str
+    
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+```
+
+**❌ DON'T: Mix business logic in route handlers**
+**❌ DON'T: Skip tenant validation**
+**❌ DON'T: Return raw database models**
+**❌ DON'T: Use global state for tenant context**

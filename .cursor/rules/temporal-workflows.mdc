@@ -1,0 +1,531 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Temporal Workflow Orchestration Guidelines
+
+This rule defines patterns for implementing Temporal workflows in the Media Planning Platform, ensuring reliable, fault-tolerant, and scalable workflow orchestration.
+
+## **Workflow Architecture**
+
+- **Follow the three-workflow pattern from system architecture**
+  - **Integration Workflow**: OAuth flows and initial data sync
+  - **Planning Workflow**: Multi-agent media planning process  
+  - **Sync Workflow**: Continuous data synchronization
+  - Reference: [docs/media-planner-architecture.md](mdc:docs/media-planner-architecture.md)
+
+## **Configuration Management**
+
+- **Use centralized Temporal configuration**
+  - Reference: [app/core/config.py](mdc:app/core/config.py)
+  - All Temporal settings should be in the Settings class
+
+```python
+# ✅ DO: Proper Temporal configuration
+class Settings(BaseSettings):
+    # Temporal Configuration
+    TEMPORAL_HOST: str = "localhost"
+    TEMPORAL_PORT: int = 7233
+    TEMPORAL_NAMESPACE: str = "default"
+    TEMPORAL_TLS_ENABLED: bool = False
+    
+    # Task Queues
+    TEMPORAL_TASK_QUEUE_INTEGRATION: str = "media-planner-integration"
+    TEMPORAL_TASK_QUEUE_SYNC: str = "media-planner-sync"
+    TEMPORAL_TASK_QUEUE_PLANNING: str = "media-planner-planning"
+    
+    @property
+    def temporal_address(self) -> str:
+        return f"{self.TEMPORAL_HOST}:{self.TEMPORAL_PORT}"
+```
+
+## **Workflow Implementation Patterns**
+
+- **Integration Workflow for OAuth and Discovery**
+  - Handle OAuth authentication flows
+  - Manage initial data discovery
+  - Set up continuous sync workflows
+
+```python
+# ✅ DO: Integration workflow pattern
+@workflow.defn
+class IntegrationWorkflow:
+    @workflow.run
+    async def run(self, integration_type: str, user_id: str, tenant_id: str) -> dict:
+        # Step 1: OAuth authentication
+        auth_result = await workflow.execute_activity(
+            authenticate_oauth,
+            ActivityInput(integration_type=integration_type, user_id=user_id),
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=3)
+        )
+        
+        # Step 2: Initial data discovery
+        if integration_type == "google_drive":
+            discovery_result = await workflow.execute_activity(
+                discover_campaign_files,
+                ActivityInput(token=auth_result.token, tenant_id=tenant_id),
+                start_to_close_timeout=timedelta(minutes=5)
+            )
+        
+        # Step 3: Setup continuous sync
+        await workflow.execute_child_workflow(
+            ContinuousSyncWorkflow.run,
+            SyncInput(integration_type=integration_type, user_id=user_id, tenant_id=tenant_id),
+            id=f"sync-{tenant_id}-{integration_type}",
+            task_queue="media-planner-sync"
+        )
+        
+        return IntegrationResult(
+            status="connected",
+            discovered_items=discovery_result.item_count,
+            sync_workflow_id=f"sync-{tenant_id}-{integration_type}"
+        )
+```
+
+- **Planning Workflow for Multi-Agent Analysis**
+  - Orchestrate multi-agent system
+  - Handle data gathering and analysis
+  - Generate final recommendations
+
+```python
+# ✅ DO: Planning workflow pattern
+@workflow.defn
+class MediaPlanningWorkflow:
+    @workflow.run
+    async def run(self, campaign_id: str, user_id: str, tenant_id: str) -> dict:
+        # Step 1: Gather campaign data
+        data_gathering = await workflow.execute_activity(
+            gather_campaign_data,
+            CampaignInput(campaign_id=campaign_id, tenant_id=tenant_id),
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                backoff_coefficient=2.0,
+                maximum_attempts=5
+            )
+        )
+        
+        # Step 2: Run multi-agent analysis in parallel
+        agent_tasks = []
+        
+        # Workspace agent
+        workspace_task = workflow.execute_activity(
+            run_workspace_agent,
+            AgentInput(data=data_gathering.workspace_data, tenant_id=tenant_id),
+            start_to_close_timeout=timedelta(minutes=15)
+        )
+        agent_tasks.append(workspace_task)
+        
+        # Planning agent
+        planning_task = workflow.execute_activity(
+            run_planning_agent,
+            AgentInput(data=data_gathering.historical_data, tenant_id=tenant_id),
+            start_to_close_timeout=timedelta(minutes=15)
+        )
+        agent_tasks.append(planning_task)
+        
+        # Insights agent
+        insights_task = workflow.execute_activity(
+            run_insights_agent,
+            AgentInput(data=data_gathering.market_data, tenant_id=tenant_id),
+            start_to_close_timeout=timedelta(minutes=15)
+        )
+        agent_tasks.append(insights_task)
+        
+        # Wait for all agents to complete
+        agent_results = await asyncio.gather(*agent_tasks)
+        
+        # Step 3: Generate final recommendations
+        recommendations = await workflow.execute_activity(
+            generate_recommendations,
+            RecommendationInput(
+                workspace_result=agent_results[0],
+                planning_result=agent_results[1],
+                insights_result=agent_results[2],
+                tenant_id=tenant_id
+            ),
+            start_to_close_timeout=timedelta(minutes=5)
+        )
+        
+        return recommendations
+```
+
+## **Activity Implementation Standards**
+
+- **Use proper activity decoration and error handling**
+  - All activities must be decorated with `@activity.defn`
+  - Implement deterministic behavior
+  - Handle Google API integration properly
+
+```python
+# ✅ DO: Proper activity implementation
+@activity.defn
+async def discover_campaign_files(input: DiscoveryInput) -> DiscoveryResult:
+    """Discover campaign files in Google Drive."""
+    activity.logger.info(f"Starting file discovery for tenant {input.tenant_id}")
+    
+    try:
+        # Use dependency injection for Google services
+        auth_manager = GoogleAuthManager(get_settings())
+        
+        with GoogleDriveClient(auth_manager, get_settings()) as drive_client:
+            # Search for campaign-related files
+            files = drive_client.find_campaign_files(
+                campaign_keywords=input.keywords,
+                folder_id=input.folder_id
+            )
+            
+            activity.logger.info(f"Discovered {len(files)} campaign files")
+            
+            return DiscoveryResult(
+                item_count=len(files),
+                files=[FileInfo.from_drive_file(f) for f in files],
+                status="success"
+            )
+            
+    except Exception as e:
+        activity.logger.error(f"Failed to discover files: {e}")
+        # Let Temporal handle retries
+        raise
+```
+
+## **Multi-Agent Activity Patterns**
+
+- **Design activities for LangGraph integration**
+  - Each agent should have its own activity
+  - Pass structured data between agents
+  - Handle agent failures gracefully
+
+```python
+# ✅ DO: Multi-agent activity pattern
+@activity.defn
+async def run_workspace_agent(input: AgentInput) -> AgentResult:
+    """Run workspace synchronization agent."""
+    try:
+        from app.agents.workspace_agent import WorkspaceAgent
+        
+        agent = WorkspaceAgent()
+        
+        # Process workspace data
+        result = await agent.process(
+            data=input.data,
+            tenant_id=input.tenant_id,
+            context=input.context
+        )
+        
+        return AgentResult(
+            agent_type="workspace",
+            status="success",
+            data=result.data,
+            confidence_score=result.confidence,
+            recommendations=result.recommendations
+        )
+        
+    except Exception as e:
+        activity.logger.error(f"Workspace agent failed: {e}")
+        return AgentResult(
+            agent_type="workspace",
+            status="failed",
+            error_message=str(e),
+            confidence_score=0.0
+        )
+```
+
+## **Error Handling & Retry Strategies**
+
+- **Implement proper retry policies for different scenarios**
+  - Authentication errors: Limited retries
+  - Network errors: Exponential backoff
+  - Rate limiting: Longer delays
+
+```python
+# ✅ DO: Specific retry policies
+@workflow.defn
+class GoogleSyncWorkflow:
+    @workflow.run
+    async def run(self, input: SyncInput) -> SyncResult:
+        # Rate-limited API calls
+        sheets_data = await workflow.execute_activity(
+            sync_google_sheets,
+            input,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                backoff_coefficient=2.0,
+                maximum_interval=timedelta(minutes=2),
+                maximum_attempts=10,
+                non_retryable_error_types=["AuthenticationError"]
+            )
+        )
+        
+        # Authentication activities
+        auth_result = await workflow.execute_activity(
+            refresh_google_credentials,
+            input,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,  # Limited retries for auth
+                non_retryable_error_types=["InvalidCredentialsError"]
+            )
+        )
+```
+
+## **Workflow Testing Patterns**
+
+- **Use Temporal testing framework**
+  - Test workflows in isolation
+  - Mock external dependencies
+  - Verify activity execution order
+
+```python
+# ✅ DO: Proper workflow testing
+import pytest
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Worker
+
+@pytest.mark.asyncio
+async def test_integration_workflow():
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="test-queue",
+            workflows=[IntegrationWorkflow],
+            activities=[authenticate_oauth, discover_campaign_files]
+        ):
+            result = await env.client.execute_workflow(
+                IntegrationWorkflow.run,
+                IntegrationInput(
+                    integration_type="google_drive",
+                    user_id="test-user",
+                    tenant_id="test-tenant"
+                ),
+                id="test-integration",
+                task_queue="test-queue"
+            )
+            
+            assert result.status == "connected"
+            assert result.discovered_items > 0
+```
+
+## **Dependency Injection in Workflows**
+
+- **Use app state for service dependencies**
+  - Reference: [app/dependencies.py](mdc:app/dependencies.py)
+  - Pass service instances to activities
+
+```python
+# ✅ DO: Proper dependency management
+@activity.defn
+async def sync_campaign_data(input: SyncInput) -> SyncResult:
+    # Get dependencies from activity context
+    settings = get_settings()
+    auth_manager = GoogleAuthManager(settings)
+    
+    # Use context managers for proper cleanup
+    async with GoogleSheetsClient(auth_manager, settings) as sheets_client:
+        campaign_data = sheets_client.parse_campaign_data(
+            spreadsheet_id=input.spreadsheet_id,
+            sheet_name=input.sheet_name
+        )
+        
+        return SyncResult(
+            campaigns_synced=len(campaign_data),
+            status="success"
+        )
+```
+
+## **Workflow State Management**
+
+- **Use proper state handling for long-running workflows**
+  - Implement checkpoints for resumability
+  - Handle state transitions explicitly
+  - Use workflow signals for external communication
+
+```python
+# ✅ DO: Stateful workflow with signals
+@workflow.defn
+class ContinuousSyncWorkflow:
+    def __init__(self):
+        self.is_paused = False
+        self.sync_interval = timedelta(hours=1)
+    
+    @workflow.signal
+    async def pause_sync(self):
+        self.is_paused = True
+    
+    @workflow.signal
+    async def resume_sync(self):
+        self.is_paused = False
+    
+    @workflow.run
+    async def run(self, input: SyncInput) -> None:
+        while True:
+            if not self.is_paused:
+                await workflow.execute_activity(
+                    perform_sync,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=30)
+                )
+            
+            await workflow.sleep(self.sync_interval)
+```
+
+## **Performance Optimization**
+
+- **Optimize for throughput and reliability**
+  - Use appropriate task queues
+  - Implement parallel execution where possible
+  - Set proper timeouts and limits
+
+```python
+# ✅ DO: Performance-optimized workflow
+@workflow.defn
+class BulkDataSyncWorkflow:
+    @workflow.run
+    async def run(self, input: BulkSyncInput) -> BulkSyncResult:
+        # Process in batches to avoid overwhelming APIs
+        batch_size = 10
+        batches = [
+            input.items[i:i + batch_size] 
+            for i in range(0, len(input.items), batch_size)
+        ]
+        
+        results = []
+        for batch in batches:
+            # Process batches in parallel
+            batch_tasks = [
+                workflow.execute_activity(
+                    sync_single_item,
+                    item,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    task_queue="media-planner-sync"  # Dedicated queue
+                )
+                for item in batch
+            ]
+            
+            batch_results = await asyncio.gather(*batch_tasks)
+            results.extend(batch_results)
+            
+            # Brief pause between batches to respect rate limits
+            await workflow.sleep(timedelta(seconds=1))
+        
+        return BulkSyncResult(
+            processed_count=len(results),
+            success_count=sum(1 for r in results if r.status == "success")
+        )
+```
+
+This rule ensures robust, scalable, and maintainable Temporal workflow implementation for the Media Planning Platform's orchestration needs.
+
+# Temporal Workflows Architecture
+
+This project implements a comprehensive three-layer Temporal workflow architecture for media planning automation.
+
+## **Workflow Organization Structure**
+
+- **Integration Layer**: [`integration_workflows.py`](mdc:media-planner-infra/app/temporal/workflows/integration_workflows.py)
+  - Platform-specific workflows (Google Ads, Meta Ads, Google Drive)
+  - External API integration patterns
+  - Authentication and authorization handling
+
+- **Sync Layer**: [`sync_workflows.py`](mdc:media-planner-infra/app/temporal/workflows/sync_workflows.py)
+  - Scheduled synchronization workflows
+  - Multi-tenant orchestration
+  - Conflict resolution and data validation
+
+- **Planning Layer**: [`planning_workflows.py`](mdc:media-planner-infra/app/temporal/workflows/planning_workflows.py)
+  - Campaign planning and optimization
+  - Budget allocation and management
+  - Performance analysis workflows
+
+## **Activity Functions Pattern**
+
+- **Common Activities**: [`common_activities.py`](mdc:media-planner-infra/app/temporal/activities/common_activities.py)
+  - Shared database operations
+  - Authentication helpers
+  - Sync utilities and checkpointing
+
+- **Integration Activities**: [`integration_activities.py`](mdc:media-planner-infra/app/temporal/activities/integration_activities.py)
+  - Platform-specific API calls
+  - Data transformation and validation
+  - Error handling and retry logic
+
+## **Workflow Implementation Standards**
+
+**✅ DO: Follow Multi-Tenant Pattern**
+```python
+@workflow.defn
+class MultiTenantWorkflow:
+    @workflow.run
+    async def run(self, tenant_id: str, config: WorkflowConfig) -> WorkflowResult:
+        # Always validate tenant access first
+        await workflow.execute_activity(
+            validate_tenant_access,
+            args=[tenant_id],
+            start_to_close_timeout=timedelta(seconds=30)
+        )
+```
+
+**✅ DO: Implement Comprehensive Error Handling**
+```python
+retry_policy = RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(minutes=5),
+    maximum_attempts=3,
+    backoff_coefficient=2.0
+)
+```
+
+**✅ DO: Use Structured Configuration**
+```python
+@dataclass
+class WorkflowConfig:
+    tenant_id: str
+    schedule_interval: str
+    validation_rules: Dict[str, Any]
+    conflict_resolution: str = "latest_wins"
+```
+
+**✅ DO: Implement Health Monitoring**
+```python
+# Include health checks in all critical workflows
+health_status = await workflow.execute_activity(
+    check_workflow_health,
+    args=[workflow_id, tenant_id],
+    start_to_close_timeout=timedelta(seconds=30)
+)
+```
+
+## **Scheduling Patterns**
+
+Reference [`schedulers.py`](mdc:media-planner-infra/app/temporal/schedulers.py) for cron-like scheduling:
+
+```python
+# Use predefined schedule presets
+SCHEDULE_PRESETS = {
+    "frequent": "*/5 * * * *",      # Every 5 minutes
+    "normal": "0 */2 * * *",        # Every 2 hours  
+    "business_hours": "0 9-17 * * 1-5"  # Business hours only
+}
+```
+
+## **Activity Retry and Timeout Standards**
+
+- **Short operations** (< 30s): `start_to_close_timeout=timedelta(seconds=30)`
+- **API calls**: `start_to_close_timeout=timedelta(minutes=2)`
+- **Data processing**: `start_to_close_timeout=timedelta(minutes=10)`
+- **Always implement** exponential backoff for external API calls
+
+## **Testing Patterns**
+
+Create workflow examples in [`examples/`](mdc:media-planner-infra/app/temporal/examples) directory:
+- Demonstrate complete workflow execution
+- Show error handling scenarios
+- Include multi-tenant test cases
+
+**❌ DON'T: Mix workflow types in single file**
+**❌ DON'T: Skip tenant validation**
+**❌ DON'T: Use hardcoded timeouts**
+**❌ DON'T: Ignore conflict resolution strategies**

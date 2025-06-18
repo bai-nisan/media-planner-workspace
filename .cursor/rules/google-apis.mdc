@@ -1,0 +1,290 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Google API Integration Guidelines
+
+This rule defines patterns and best practices for integrating with Google APIs in the Media Planning Platform, based on our production-ready implementation in [app/services/google/](mdc:app/services/google).
+
+## **Authentication & Authorization**
+
+- **Use GoogleAuthManager for all OAuth flows**
+  - Reference: [app/services/google/auth.py](mdc:app/services/google/auth.py)
+  - Always use dependency injection: `auth_manager: GoogleAuthManager = Depends(get_google_auth_manager)`
+  - Implement proper credential refresh and validation patterns
+
+```python
+# ✅ DO: Proper OAuth flow implementation
+def get_authorization_url(self, redirect_uri: str) -> tuple[str, str]:
+    flow = self.create_oauth_flow(redirect_uri)
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        prompt='consent'  # Force consent to get refresh token
+    )
+    return authorization_url, state
+
+# ✅ DO: Robust credential validation
+def get_valid_credentials(self) -> Optional[Credentials]:
+    if self.credentials.expired:
+        if self.credentials.refresh_token:
+            try:
+                self.credentials.refresh(Request())
+                self._save_credentials(self.credentials)
+            except Exception:
+                # Clear invalid credentials
+                self.credentials = None
+                return None
+```
+
+## **Service Client Architecture**
+
+- **All Google service clients must support context managers**
+  - Implement `__enter__`, `__exit__`, and `close()` methods
+  - Use centralized error handling with `_handle_api_errors()`
+  - Follow the pattern established in [app/services/google/drive_client.py](mdc:app/services/google/drive_client.py)
+
+```python
+# ✅ DO: Context manager support
+class GoogleServiceClient:
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+    
+    def close(self):
+        if self._service:
+            try:
+                self._service.close()
+            except Exception as e:
+                logger.warning(f"Error closing service: {e}")
+            finally:
+                self._service = None
+
+# ✅ DO: Centralized error handling
+@contextmanager
+def _handle_api_errors(self, operation: str):
+    try:
+        yield
+    except HttpError as e:
+        logger.error(f"API error during {operation}: {e}")
+        if e.resp.status in [401, 403]:
+            self.auth_manager.credentials = None
+        raise
+```
+
+## **Dependency Injection Pattern**
+
+- **Use generator-based dependencies for automatic cleanup**
+  - Reference: [app/dependencies.py](mdc:app/dependencies.py)
+  - Always yield clients and handle cleanup in finally blocks
+
+```python
+# ✅ DO: Generator-based dependency with cleanup
+def get_google_drive_client(
+    auth_manager: GoogleAuthManager = Depends(get_google_auth_manager),
+    settings: Settings = Depends(get_settings)
+) -> Generator[GoogleDriveClient, None, None]:
+    client = GoogleDriveClient(auth_manager, settings)
+    try:
+        yield client
+    except Exception as e:
+        logger.error(f"Error during Drive client operation: {e}")
+        raise
+    finally:
+        try:
+            client.close()
+        except Exception as e:
+            logger.warning(f"Error closing Drive client: {e}")
+```
+
+## **Service Implementation Standards**
+
+- **Lazy service initialization with caching**
+  - Services should be created only when needed
+  - Cache service instances in `self._service`
+  - Use `cache_discovery=False` for production
+
+```python
+# ✅ DO: Lazy service initialization
+@property
+def service(self):
+    if not self._service:
+        credentials = self.auth_manager.get_valid_credentials()
+        if not credentials:
+            raise ValueError("No valid Google credentials available")
+        
+        self._service = build(
+            'drive', 'v3', 
+            credentials=credentials,
+            cache_discovery=False  # Recommended for production
+        )
+    return self._service
+```
+
+## **Data Models & Validation**
+
+- **Use Pydantic models for all API responses**
+  - Define models for each service's data structures
+  - Handle datetime parsing consistently
+  - Validate data integrity
+
+```python
+# ✅ DO: Comprehensive Pydantic models
+class DriveFile(BaseModel):
+    id: str
+    name: str
+    mime_type: str
+    size: Optional[int] = None
+    created_time: datetime
+    modified_time: datetime
+    web_view_link: str
+    parents: List[str] = []
+    shared: bool = False
+
+# ✅ DO: Safe data parsing with error handling
+for file_data in files:
+    try:
+        drive_file = DriveFile(
+            created_time=datetime.fromisoformat(
+                file_data['createdTime'].replace('Z', '+00:00')
+            ),
+            # ... other fields
+        )
+        drive_files.append(drive_file)
+    except Exception as e:
+        logger.warning(f"Failed to parse file {file_data.get('name', 'unknown')}: {e}")
+        continue
+```
+
+## **Error Handling Patterns**
+
+- **Consistent error handling across all Google APIs**
+  - Use context managers for operation-specific error handling
+  - Log detailed error information
+  - Handle authentication errors by clearing credentials
+
+```python
+# ✅ DO: Operation-specific error handling
+def list_files(self, folder_id: Optional[str] = None) -> List[DriveFile]:
+    with self._handle_api_errors("list_files"):
+        results = self.service.files().list(
+            q=query,
+            pageSize=min(limit, 1000),
+            fields="nextPageToken, files(id, name, mimeType, ...)"
+        ).execute()
+        # Process results...
+```
+
+## **Configuration Management**
+
+- **Google API settings in core configuration**
+  - Reference: [app/core/config.py](mdc:app/core/config.py)
+  - Use environment variables for sensitive data
+  - Provide sensible defaults for development
+
+```python
+# ✅ DO: Proper configuration structure
+class Settings(BaseSettings):
+    # Google API Configuration
+    GOOGLE_CLIENT_SECRETS_FILE: str = "config/client_secrets.json"
+    GOOGLE_CREDENTIALS_FILE: str = "config/google_credentials.json"
+    GOOGLE_ADS_DEVELOPER_TOKEN: Optional[str] = None
+    GOOGLE_ADS_CUSTOMER_ID: Optional[str] = None
+    
+    # Scopes configuration
+    @property
+    def all_google_scopes(self) -> List[str]:
+        return self.GOOGLE_DRIVE_SCOPES + self.GOOGLE_SHEETS_SCOPES + self.GOOGLE_ADS_SCOPES
+```
+
+## **Testing Patterns**
+
+- **Mock external dependencies in tests**
+  - Use `HttpMock` for simulating API responses
+  - Test error scenarios including authentication failures
+  - Verify proper resource cleanup
+
+```python
+# ✅ DO: Proper testing with mocks
+from googleapiclient.http import HttpMock
+
+@patch('app.services.google.auth.GoogleAuthManager.get_valid_credentials')
+def test_drive_client_list_files(mock_credentials):
+    mock_credentials.return_value = mock_valid_credentials
+    
+    with GoogleDriveClient(auth_manager, settings) as client:
+        files = client.list_files(limit=5)
+        assert len(files) == 5
+```
+
+## **Performance Considerations**
+
+- **Implement efficient API usage patterns**
+  - Use batch operations when available
+  - Implement proper pagination
+  - Use field selection to minimize data transfer
+
+```python
+# ✅ DO: Efficient API calls with field selection
+results = self.service.files().list(
+    q=query,
+    pageSize=min(limit, 1000),  # Drive API max is 1000
+    fields="nextPageToken, files(id, name, mimeType, size, "
+           "createdTime, modifiedTime, webViewLink, parents, shared)"
+).execute()
+
+# ✅ DO: Batch operations for multiple requests
+def batch_read(self, spreadsheet_id: str, ranges: List[str]) -> List[SheetData]:
+    batch_request = self.service.spreadsheets().values().batchGet(
+        spreadsheetId=spreadsheet_id,
+        ranges=ranges
+    )
+    return batch_request.execute()
+```
+
+## **Security Best Practices**
+
+- **Secure credential management**
+  - Never log credentials or tokens
+  - Store credentials in secure location
+  - Implement proper token refresh mechanisms
+  - Clear credentials on authentication failures
+
+```python
+# ✅ DO: Secure credential handling
+def _save_credentials(self, credentials: Credentials) -> None:
+    credentials_file = Path(self.settings.GOOGLE_CREDENTIALS_FILE)
+    credentials_file.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Never log credential data
+    logger.info("Credentials saved successfully")  # ✅ Safe logging
+    
+# ❌ DON'T: Log sensitive data
+logger.info(f"Access token: {credentials.token}")  # ❌ Security risk
+```
+
+## **Integration with Temporal Workflows**
+
+- **Design for workflow compatibility**
+  - All operations should be deterministic
+  - Handle long-running operations appropriately
+  - Support retry mechanisms for transient failures
+
+```python
+# ✅ DO: Workflow-compatible error handling
+@activity.defn
+async def sync_google_drive_files(tenant_id: str) -> Dict[str, Any]:
+    try:
+        with get_google_drive_client() as drive_client:
+            files = drive_client.list_files()
+            return {"status": "success", "file_count": len(files)}
+    except Exception as e:
+        # Log error and re-raise for Temporal retry
+        logger.error(f"Failed to sync Drive files for tenant {tenant_id}: {e}")
+        raise
+```
+
+This rule ensures consistent, secure, and maintainable Google API integration patterns across the Media Planning Platform.

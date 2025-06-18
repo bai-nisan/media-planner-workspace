@@ -1,0 +1,325 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Media Planner Infrastructure Development Rules
+
+## **Package Management & Dependencies**
+
+- **✅ ALWAYS use Poetry for dependency management**
+  ```bash
+  # ✅ DO: Install packages with Poetry
+  poetry add fastapi
+  poetry add --group dev pytest
+  poetry install
+  
+  # ❌ DON'T: Use pip directly
+  pip install fastapi  # NEVER do this
+  ```
+
+- **Poetry Commands Reference**
+  ```bash
+  poetry install                    # Install dependencies
+  poetry add <package>              # Add runtime dependency
+  poetry add --group dev <package>  # Add development dependency
+  poetry add --group test <package> # Add test dependency
+  poetry run <command>              # Run commands in poetry env
+  poetry shell                      # Activate virtual environment
+  poetry show                       # List installed packages
+  poetry update                     # Update dependencies
+  ```
+
+## **Development Environment Setup**
+
+- **Temporal Cluster Management**
+  ```bash
+  # ✅ DO: Use provided scripts for Temporal
+  ./scripts/temporal-start.sh start   # Start Temporal cluster
+  ./scripts/temporal-start.sh stop    # Stop cluster
+  ./scripts/temporal-start.sh status  # Check health
+  ./scripts/temporal-start.sh logs    # View logs
+  
+  # ❌ DON'T: Start Temporal manually
+  docker-compose up  # Use the script instead
+  ```
+
+- **Required Services**
+  - Temporal cluster (ports 7233, 8088, 5433, 9200)
+  - Redis for caching
+  - PostgreSQL for production
+  - Python 3.11+ with Poetry
+
+## **Code Quality & Style**
+
+- **✅ ALWAYS run code quality tools**
+  ```bash
+  # ✅ DO: Run all quality checks
+  poetry run black .      # Code formatting
+  poetry run isort .      # Import sorting
+  poetry run flake8 .     # Linting
+  poetry run mypy .       # Type checking
+  poetry run pytest      # Testing
+  
+  # ✅ DO: Use pre-commit hooks
+  poetry run pre-commit install
+  poetry run pre-commit run --all-files
+  ```
+
+- **Type Hints Requirements**
+  - **MANDATORY**: All functions must have type hints
+  - **Python 3.11+**: Use modern Python features
+  - **Async/Await**: Use async patterns for I/O operations
+
+## **FastAPI Development Patterns**
+
+- **✅ Proper FastAPI Structure**
+  ```python
+  # ✅ DO: Use proper async patterns
+  from fastapi import FastAPI, Depends
+  from typing import Optional
+  
+  @app.get("/campaigns/{campaign_id}")
+  async def get_campaign(
+      campaign_id: str,
+      user: User = Depends(get_current_user)
+  ) -> CampaignResponse:
+      return await campaign_service.get(campaign_id)
+  
+  # ❌ DON'T: Synchronous handlers for I/O
+  def get_campaign_sync(campaign_id: str):  # Missing async
+      pass
+  ```
+
+- **Multi-tenant Architecture**
+  - Always include tenant context in database operations
+  - Use dependency injection for tenant isolation
+  - Follow patterns in [dependencies.py](mdc:media-planner-infra/app/dependencies.py)
+
+## **Temporal Workflow Patterns**
+
+- **✅ Proper Temporal Integration**
+  ```python
+  # ✅ DO: Use Temporal workflows for durable processes
+  from temporalio import workflow, activity
+  
+  @workflow.defn
+  class MediaPlanningWorkflow:
+      @workflow.run
+      async def run(self, params: WorkflowParams) -> WorkflowResult:
+          # Use activities for external operations
+          result = await workflow.execute_activity(
+              process_campaign_data,
+              params,
+              start_to_close_timeout=timedelta(minutes=10)
+          )
+          return result
+  
+  # ❌ DON'T: Long-running operations in FastAPI handlers
+  @app.post("/process")
+  async def process_sync():  # Should use Temporal workflow
+      # Long operation that could fail and lose state
+      pass
+  ```
+
+## **LangGraph Multi-Agent Patterns**
+
+- **✅ Agent Development Guidelines**
+  ```python
+  # ✅ DO: Follow agent patterns from codebase
+  from langgraph import StateGraph
+  from app.services.langgraph.workflows.state_models import AgentState
+  
+  # Use proper state management
+  class CustomAgent:
+      async def process(self, state: AgentState) -> AgentState:
+          # Agent logic here
+          return updated_state
+  
+  # ❌ DON'T: Create agents outside the established patterns
+  ```
+
+- **Agent Types** (reference [LANGGRAPH_ARCHITECTURE.md](mdc:media-planner-infra/docs/LANGGRAPH_ARCHITECTURE.md))
+  - `WORKSPACE`: Data ingestion and management  
+  - `PLANNING`: Campaign strategy and optimization
+  - `INSIGHTS`: Performance analysis
+  - `SUPERVISOR`: Workflow orchestration
+
+## **Database & State Management**
+
+- **✅ Supabase Integration**
+  ```python
+  # ✅ DO: Use proper Supabase patterns
+  from app.core.database import get_supabase_client
+  
+  async def store_agent_state(
+      tenant_id: str,
+      session_id: str,
+      state: AgentState
+  ) -> bool:
+      supabase = await get_supabase_client()
+      # Proper error handling and tenant isolation
+  
+  # ❌ DON'T: Direct database access without tenant context
+  ```
+
+## **Google API Integration**
+
+- **✅ Google APIs Usage**
+  ```python
+  # ✅ DO: Use established Google API patterns
+  from app.services.google.auth import GoogleAuthService
+  from app.services.google.sheets import GoogleSheetsService
+  
+  # Follow authentication patterns
+  auth_service = GoogleAuthService()
+  sheets_service = GoogleSheetsService(auth_service)
+  
+  # ❌ DON'T: Create direct Google API clients
+  ```
+
+- **Supported Google APIs**
+  - Google Ads API for campaign management
+  - Google Sheets for data import/export
+  - Google Drive for file management
+  - Google OAuth for authentication
+
+## **Testing Requirements**
+
+- **✅ Comprehensive Testing**
+  ```bash
+  # ✅ DO: Run tests with coverage
+  poetry run pytest --cov=app
+  poetry run pytest tests/api/
+  poetry run pytest -v tests/test_auth.py
+  
+  # ✅ DO: Test categories to include
+  # - Unit tests for individual components
+  # - Integration tests for service interactions  
+  # - API tests with test client
+  # - Workflow tests for Temporal workflows
+  ```
+
+- **Test Structure** (reference [README.md](mdc:media-planner-infra/README.md))
+  ```
+  tests/
+  ├── api/          # API endpoint tests
+  ├── core/         # Core functionality tests
+  ├── models/       # Model validation tests
+  └── workflows/    # Temporal workflow tests
+  ```
+
+## **Configuration Management**
+
+- **✅ Environment Configuration**
+  ```python
+  # ✅ DO: Use Pydantic settings
+  from pydantic_settings import BaseSettings
+  
+  class Settings(BaseSettings):
+      project_name: str = "Media Planning Platform API"
+      environment: str = "development"
+      # Centralized configuration in app/core/config.py
+  
+  # ❌ DON'T: Hard-code configuration values
+  ```
+
+- **Required Environment Variables**
+  ```env
+  # Database & Cache
+  DATABASE_URL=postgresql://user:pass@localhost/db
+  REDIS_URL=redis://localhost:6379
+  
+  # Temporal
+  TEMPORAL_HOST=localhost
+  TEMPORAL_PORT=7233
+  
+  # Google APIs
+  GOOGLE_OAUTH_CLIENT_ID=your-client-id
+  GOOGLE_OAUTH_CLIENT_SECRET=your-client-secret
+  ```
+
+## **Application Startup & Health**
+
+- **✅ Proper Application Running**
+  ```bash
+  # ✅ DO: Start application properly
+  poetry run uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+  
+  # ✅ DO: Check health endpoints
+  curl http://localhost:8000/health
+  curl http://localhost:8000/health/temporal
+  
+  # ✅ DO: Access documentation
+  # http://localhost:8000/api/docs (Swagger)
+  # http://localhost:8088 (Temporal Web UI)
+  ```
+
+## **Project Structure Adherence**
+
+- **Follow Established Structure** (reference [README.md](mdc:media-planner-infra/README.md))
+  ```
+  app/
+  ├── api/v1/          # API endpoints and routing
+  ├── core/            # Core configuration and exceptions
+  ├── services/        # Business logic services
+  ├── temporal/        # Workflow definitions and activities
+  ├── models/          # Data models and schemas
+  ├── middleware/      # Custom middleware
+  ├── crud/            # Database operations
+  └── schemas/         # Pydantic schemas
+  ```
+
+## **Security & Multi-tenancy**
+
+- **✅ Security Requirements**
+  - JWT token authentication for all protected endpoints
+  - Tenant isolation at data level
+  - Google OAuth integration
+  - Role-based access control
+  - CORS configuration for frontend integration
+
+## **Performance & Monitoring**
+
+- **✅ Performance Considerations**
+  - Use async/await for all I/O operations
+  - Implement connection pooling
+  - Redis caching for frequently accessed data
+  - Structured JSON logging
+  - Health checks for all components
+
+## **Common Anti-patterns to Avoid**
+
+- **❌ DON'T use pip instead of Poetry**
+- **❌ DON'T create synchronous handlers for I/O operations**
+- **❌ DON'T bypass the multi-tenant architecture**
+- **❌ DON'T create long-running operations outside Temporal**
+- **❌ DON'T skip type hints or code quality checks**
+- **❌ DON'T hardcode configuration values**
+- **❌ DON'T create direct API clients without using established services**
+
+## **Documentation References**
+
+- Main documentation: [README.md](mdc:media-planner-infra/README.md)
+- Temporal setup: [TEMPORAL_SETUP.md](mdc:media-planner-infra/TEMPORAL_SETUP.md)
+- LangGraph architecture: [LANGGRAPH_ARCHITECTURE.md](mdc:media-planner-infra/docs/LANGGRAPH_ARCHITECTURE.md)
+- Dependencies configuration: [pyproject.toml](mdc:media-planner-infra/pyproject.toml)
+
+## **Quick Command Reference**
+
+```bash
+# Setup & Development
+poetry install                        # Install dependencies
+./scripts/temporal-start.sh start     # Start Temporal cluster
+poetry run uvicorn main:app --reload  # Start FastAPI app
+
+# Code Quality
+poetry run black . && poetry run isort . && poetry run flake8 . && poetry run mypy .
+
+# Testing
+poetry run pytest --cov=app          # Run tests with coverage
+
+# Health Checks
+curl http://localhost:8000/health     # API health
+./scripts/temporal-start.sh status   # Temporal health
+```

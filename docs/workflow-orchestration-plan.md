@@ -195,7 +195,33 @@ API → Planning Workflow
 
 ## Implementation Guidelines
 
-### 1. Start Simple
+### 1. Development Environment Setup
+
+**Use Temporal CLI (New Recommended Approach)**:
+```bash
+# Install Temporal CLI
+brew install temporal
+
+# Start development server
+temporal server start-dev --ui-port 8088
+
+# With persistence (optional)
+temporal server start-dev --ui-port 8088 --db-filename temporal.db
+```
+
+**Benefits over Docker**:
+- ✅ Native Apple Silicon support (no ARM64/AMD64 issues)
+- ✅ Zero configuration required
+- ✅ Instant startup (seconds vs minutes)
+- ✅ Official Temporal recommendation
+- ✅ Built-in SQLite persistence
+
+**Connection Details**:
+- gRPC API: `localhost:7233`
+- Web UI: http://localhost:8088
+- Default namespace: `default`
+
+### 2. Start Simple
 - Begin with Google Drive only
 - Add other integrations later
 - Use simple polling instead of webhooks initially

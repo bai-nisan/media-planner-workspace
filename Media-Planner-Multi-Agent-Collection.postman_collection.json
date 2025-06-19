@@ -1,0 +1,371 @@
+{
+  "info": {
+    "name": "Media Planner Multi-Agent System",
+    "description": "Complete test suite for the Media Planning Platform's multi-agent system using LangGraph and Temporal workflows",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "api_version",
+      "value": "v1",
+      "type": "string"
+    },
+    {
+      "key": "tenant_id",
+      "value": "test-tenant",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "test-user-123",
+      "type": "string"
+    },
+    {
+      "key": "test_spreadsheet_id",
+      "value": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+      "type": "string"
+    },
+    {
+      "key": "workflow_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🏥 Health Checks",
+      "item": [
+        {
+          "name": "API Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Temporal Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/health/temporal",
+              "host": ["{{base_url}}"],
+              "path": ["health", "temporal"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "All Agents Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🤖 Agent Discovery",
+      "item": [
+        {
+          "name": "List All Agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", ""]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Workspace Agent Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/workspace/health",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "{{api_version}}",
+                "agents",
+                "workspace",
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Planning Agent Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/planning/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "planning", "health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Insights Agent Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/insights/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "insights", "health"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📊 Individual Agent Tasks",
+      "item": [
+        {
+          "name": "Workspace - Extract Google Sheets",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_type\": \"extract_google_sheets\",\n  \"agent_type\": \"workspace\",\n  \"data\": {\n    \"spreadsheet_id\": \"{{test_spreadsheet_id}}\",\n    \"range\": \"Class Data!A2:E\"\n  },\n  \"async_execution\": false,\n  \"priority\": \"high\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/execute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "execute"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Planning - Calculate Budget Allocation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_type\": \"calculate_budget_allocation\",\n  \"agent_type\": \"planning\",\n  \"data\": {\n    \"total_budget\": 50000,\n    \"channels\": [\"google_ads\", \"facebook_ads\", \"display\"],\n    \"target_audience\": \"tech_professionals\",\n    \"campaign_duration\": 30,\n    \"objectives\": [\"brand_awareness\", \"lead_generation\"]\n  },\n  \"async_execution\": false,\n  \"priority\": \"high\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/execute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "execute"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Insights - Analyze Campaign Performance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"task_type\": \"analyze_campaign_performance\",\n  \"agent_type\": \"insights\",\n  \"data\": {\n    \"campaign_id\": \"test-campaign-123\",\n    \"metrics\": [\"impressions\", \"clicks\", \"conversions\", \"cost\"],\n    \"date_range\": {\n      \"start\": \"2024-01-01\",\n      \"end\": \"2024-01-31\"\n    },\n    \"comparison_period\": {\n      \"start\": \"2023-12-01\",\n      \"end\": \"2023-12-31\"\n    }\n  },\n  \"async_execution\": false,\n  \"priority\": \"medium\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/execute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "execute"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔄 Multi-Agent Workflows",
+      "item": [
+        {
+          "name": "Campaign Planning Workflow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}"
+              },
+              {
+                "key": "X-User-ID",
+                "value": "{{user_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"workflow_type\": \"campaign_planning\",\n  \"input_data\": {\n    \"campaign_name\": \"Q1 Product Launch\",\n    \"budget\": 100000,\n    \"target_audience\": \"tech_professionals_25_45\",\n    \"objectives\": [\"brand_awareness\", \"lead_generation\"],\n    \"channels\": [\"google_ads\", \"facebook_ads\", \"linkedin_ads\"],\n    \"duration_days\": 90,\n    \"google_sheets_id\": \"{{test_spreadsheet_id}}\",\n    \"business_context\": {\n      \"industry\": \"technology\",\n      \"company_size\": \"startup\",\n      \"growth_stage\": \"scale\"\n    }\n  },\n  \"config\": {\n    \"use_research_agent\": true,\n    \"parallel_processing\": true,\n    \"quality_threshold\": 0.8,\n    \"max_iterations\": 3\n  },\n  \"tenant_specific\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/workflow",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{api_version}}", "agents", "workflow"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📈 Workflow Monitoring",
+      "item": [
+        {
+          "name": "Get Workflow Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/agents/workflow/{{workflow_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "{{api_version}}",
+                "agents",
+                "workflow",
+                "{{workflow_id}}",
+                "status"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔗 Google API Integrations",
+      "item": [
+        {
+          "name": "Google Sheets - Extract Data",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"spreadsheet_id\": \"{{test_spreadsheet_id}}\",\n  \"range\": \"Sheet1!A1:Z100\",\n  \"include_validation\": true,\n  \"parse_headers\": true,\n  \"data_types\": {\n    \"budget\": \"currency\",\n    \"date\": \"datetime\",\n    \"metrics\": \"numeric\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/workflows/google-sheets/extract",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "{{api_version}}",
+                "workflows",
+                "google-sheets",
+                "extract"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Google Drive - Discover Files",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Tenant-ID",
+                "value": "{{tenant_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"search_patterns\": [\"campaign\", \"media plan\", \"budget\", \"advertising\"],\n  \"file_types\": [\"spreadsheet\", \"document\"],\n  \"folders\": {\n    \"include\": [\"Marketing\", \"Campaigns\"],\n    \"exclude\": [\"Archive\", \"Templates\"]\n  },\n  \"date_range\": {\n    \"modified_after\": \"2024-01-01\"\n  },\n  \"max_results\": 50\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/{{api_version}}/workflows/google-drive/discover",
+              "host": ["{{base_url}}"],
+              "path": [
+                "api",
+                "{{api_version}}",
+                "workflows",
+                "google-drive",
+                "discover"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

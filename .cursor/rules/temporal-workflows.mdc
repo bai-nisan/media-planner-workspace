@@ -1,11 +1,38 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # Temporal Workflow Orchestration Guidelines
 
-This rule defines patterns for implementing Temporal workflows in the Media Planning Platform, ensuring reliable, fault-tolerant, and scalable workflow orchestration.
+This rule defines patterns for implementing Temporal workflows in the Media Planning Platform using the official Temporal CLI for development, ensuring reliable, fault-tolerant, and scalable workflow orchestration.
+
+## **Development Environment Setup**
+
+- **Use Temporal CLI for local development (recommended)**
+  ```bash
+  # ✅ DO: Install and use Temporal CLI
+  brew install temporal                                    # Install CLI
+  temporal server start-dev --ui-port 8088               # Start development server
+  temporal server start-dev --ui-port 8088 --db-filename temporal.db  # With persistence
+  
+  # ❌ DON'T: Use Docker for local development (deprecated)
+  docker-compose -f docker-compose.temporal.yml up       # Old Docker approach
+  ./scripts/temporal-start.sh start                      # Legacy script (now CLI wrapper)
+  ```
+
+- **CLI Benefits over Docker**
+  - ✅ **Native Apple Silicon Support**: No ARM64/AMD64 platform issues
+  - ✅ **Zero Configuration**: No docker-compose files required
+  - ✅ **Instant Startup**: Seconds vs minutes with Docker
+  - ✅ **Official Recommendation**: Temporal's preferred local development setup
+  - ✅ **Built-in Persistence**: Optional SQLite with `--db-filename`
+  - ✅ **Self-contained**: No external dependencies beyond the CLI
+
+- **Development Endpoints**
+  - **gRPC API**: `localhost:7233`
+  - **Web UI**: http://localhost:8088
+  - **Default Namespace**: `default` (created automatically)
 
 ## **Workflow Architecture**
 
@@ -17,14 +44,14 @@ This rule defines patterns for implementing Temporal workflows in the Media Plan
 
 ## **Configuration Management**
 
-- **Use centralized Temporal configuration**
-  - Reference: [app/core/config.py](mdc:app/core/config.py)
-  - All Temporal settings should be in the Settings class
+- **Use centralized Temporal configuration with CLI defaults**
+  - Reference: [app/core/config.py](mdc:media-planner-infra/app/core/config.py)
+  - Configuration works with CLI out-of-the-box
 
 ```python
-# ✅ DO: Proper Temporal configuration
+# ✅ DO: Proper Temporal configuration (CLI-compatible)
 class Settings(BaseSettings):
-    # Temporal Configuration
+    # Temporal Configuration (CLI defaults)
     TEMPORAL_HOST: str = "localhost"
     TEMPORAL_PORT: int = 7233
     TEMPORAL_NAMESPACE: str = "default"
@@ -38,7 +65,45 @@ class Settings(BaseSettings):
     @property
     def temporal_address(self) -> str:
         return f"{self.TEMPORAL_HOST}:{self.TEMPORAL_PORT}"
+    
+    # ✅ DO: CLI-compatible client connection
+    @property
+    def temporal_client_config(self) -> dict:
+        return {
+            "target_host": self.TEMPORAL_HOST,
+            "target_port": self.TEMPORAL_PORT,
+            "namespace": self.TEMPORAL_NAMESPACE,
+            "tls": self.TEMPORAL_TLS_ENABLED
+        }
 ```
+
+## **Development Workflow**
+
+- **Standard development setup with CLI**
+  ```bash
+  # ✅ DO: CLI-based development workflow
+  # Terminal 1: Start Temporal development server
+  temporal server start-dev --ui-port 8088
+  
+  # Terminal 2: Start FastAPI application
+  cd media-planner-infra
+  poetry run uvicorn main:app --reload
+  
+  # Verify connection
+  temporal server status
+  curl http://localhost:8000/health/temporal
+  ```
+
+- **Health checks and monitoring**
+  ```bash
+  # ✅ DO: Use CLI commands for monitoring
+  temporal workflow list                              # List workflows
+  temporal workflow describe --workflow-id=<id>      # Workflow details
+  temporal server status                             # Server health
+  
+  # ❌ DON'T: Use Docker commands (deprecated)
+  docker exec temporal-cli temporal workflow list    # Old approach
+  ```
 
 ## **Workflow Implementation Patterns**
 
@@ -48,7 +113,7 @@ class Settings(BaseSettings):
   - Set up continuous sync workflows
 
 ```python
-# ✅ DO: Integration workflow pattern
+# ✅ DO: Integration workflow pattern (CLI-compatible)
 @workflow.defn
 class IntegrationWorkflow:
     @workflow.run
@@ -274,19 +339,20 @@ class GoogleSyncWorkflow:
 
 ## **Workflow Testing Patterns**
 
-- **Use Temporal testing framework**
+- **Use Temporal testing framework with CLI server**
   - Test workflows in isolation
   - Mock external dependencies
   - Verify activity execution order
 
 ```python
-# ✅ DO: Proper workflow testing
+# ✅ DO: Proper workflow testing (CLI-compatible)
 import pytest
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 @pytest.mark.asyncio
 async def test_integration_workflow():
+    """Test integration workflow with CLI-compatible environment."""
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -307,12 +373,34 @@ async def test_integration_workflow():
             
             assert result.status == "connected"
             assert result.discovered_items > 0
+
+# ✅ DO: Integration test with actual CLI server
+@pytest.mark.integration
+async def test_workflow_with_cli_server():
+    """Test workflow against actual Temporal CLI server."""
+    from temporalio.client import Client
+    
+    # Connect to CLI development server
+    client = await Client.connect("localhost:7233")
+    
+    result = await client.execute_workflow(
+        IntegrationWorkflow.run,
+        IntegrationInput(
+            integration_type="google_drive",
+            user_id="test-user", 
+            tenant_id="test-tenant"
+        ),
+        id=f"test-integration-{int(time.time())}",
+        task_queue="media-planner-integration"
+    )
+    
+    assert result.status == "connected"
 ```
 
 ## **Dependency Injection in Workflows**
 
 - **Use app state for service dependencies**
-  - Reference: [app/dependencies.py](mdc:app/dependencies.py)
+  - Reference: [app/dependencies.py](mdc:media-planner-infra/app/dependencies.py)
   - Pass service instances to activities
 
 ```python
@@ -417,11 +505,97 @@ class BulkDataSyncWorkflow:
         )
 ```
 
-This rule ensures robust, scalable, and maintainable Temporal workflow implementation for the Media Planning Platform's orchestration needs.
+## **Client Connection Patterns**
+
+- **Use CLI-compatible client connections**
+  - Reference default CLI settings
+  - Handle connection failures gracefully
+  - Implement health checks
+
+```python
+# ✅ DO: CLI-compatible client setup
+async def get_temporal_client() -> Client:
+    """Get Temporal client configured for CLI development server."""
+    settings = get_settings()
+    
+    try:
+        client = await Client.connect(
+            target_host=settings.TEMPORAL_HOST,
+            target_port=settings.TEMPORAL_PORT,
+            namespace=settings.TEMPORAL_NAMESPACE,
+        )
+        
+        # Verify connection
+        await client.list_workflows()
+        return client
+        
+    except Exception as e:
+        logger.error(f"Failed to connect to Temporal CLI server: {e}")
+        logger.info("Make sure Temporal CLI server is running:")
+        logger.info("  temporal server start-dev --ui-port 8088")
+        raise
+
+# ✅ DO: Health check endpoint
+@router.get("/health/temporal")
+async def temporal_health():
+    """Check Temporal CLI server health."""
+    try:
+        client = await get_temporal_client()
+        return {
+            "status": "healthy",
+            "temporal": "connected",
+            "server": "CLI development server",
+            "endpoint": f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
+            "namespace": settings.TEMPORAL_NAMESPACE
+        }
+    except Exception as e:
+        return {
+            "status": "unhealthy", 
+            "temporal": str(e),
+            "server": "CLI development server",
+            "endpoint": f"{settings.TEMPORAL_HOST}:{settings.TEMPORAL_PORT}",
+            "help": "Run: temporal server start-dev --ui-port 8088"
+        }
+```
+
+## **Production Migration Path**
+
+- **Plan for production deployment**
+  - CLI is for development only
+  - Use Temporal Cloud or self-hosted for production
+  - Environment-specific configuration
+
+```python
+# ✅ DO: Environment-aware configuration
+class Settings(BaseSettings):
+    # Development vs Production Temporal setup
+    ENVIRONMENT: str = "development"
+    
+    @property
+    def temporal_config(self) -> dict:
+        if self.ENVIRONMENT == "development":
+            return {
+                "target_host": "localhost",
+                "target_port": 7233,
+                "namespace": "default",
+                "tls": False
+            }
+        else:
+            # Production: Temporal Cloud or self-hosted
+            return {
+                "target_host": self.TEMPORAL_CLOUD_HOST,
+                "target_port": 443,
+                "namespace": self.TEMPORAL_CLOUD_NAMESPACE,
+                "tls": True,
+                "tls_config": self.temporal_tls_config
+            }
+```
+
+This rule ensures robust, scalable, and maintainable Temporal workflow implementation using the modern CLI-based development approach for the Media Planning Platform's orchestration needs.
 
 # Temporal Workflows Architecture
 
-This project implements a comprehensive three-layer Temporal workflow architecture for media planning automation.
+This project implements a comprehensive three-layer Temporal workflow architecture for media planning automation using the official Temporal CLI for development.
 
 ## **Workflow Organization Structure**
 
@@ -451,6 +625,18 @@ This project implements a comprehensive three-layer Temporal workflow architectu
   - Platform-specific API calls
   - Data transformation and validation
   - Error handling and retry logic
+
+## **CLI Development Setup**
+
+```bash
+# ✅ DO: Use Temporal CLI for development
+temporal server start-dev --ui-port 8088                    # Basic development server
+temporal server start-dev --ui-port 8088 --db-filename temporal.db  # With persistence
+
+# ✅ DO: Verify setup
+temporal server status                                       # Check health
+curl http://localhost:8088                                  # Web UI health
+```
 
 ## **Workflow Implementation Standards**
 
@@ -524,7 +710,9 @@ Create workflow examples in [`examples/`](mdc:media-planner-infra/app/temporal/e
 - Demonstrate complete workflow execution
 - Show error handling scenarios
 - Include multi-tenant test cases
+- Test against CLI development server
 
+**❌ DON'T: Use Docker for local development (deprecated)**
 **❌ DON'T: Mix workflow types in single file**
 **❌ DON'T: Skip tenant validation**
 **❌ DON'T: Use hardcoded timeouts**
